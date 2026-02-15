@@ -185,7 +185,10 @@ function parseFeeProtocol(p: Record<string, unknown>): ProtocolFeeRecord {
   const slug = String(p.slug ?? p.module ?? p.name ?? "");
   const name = String(p.name ?? "");
   const rawCategory = p.category ? String(p.category) : null;
-  // When API returns null, try to infer from slug/name
+  // When API returns null, try to infer from slug/name.
+  // Also use slug override when raw category exists — getCategoryGroup will
+  // prioritize slug overrides at display time, but we also store the best
+  // category we can determine here for protocols with null categories.
   const category = rawCategory ?? inferCategory(slug, name);
 
   return {

@@ -58,14 +58,28 @@ export const CATEGORY_GROUP: Record<string, string> = {
   "Basis Trading": "DeFi",
   "Leveraged Staking": "DeFi",
   "Concentrated Liquidity Manager": "DeFi",
+  // DeFi — additional DefiLlama categories
+  "Bridge Aggregator": "DeFi",
+  "Governance Incentives": "DeFi",
+  "Onchain Capital Allocator": "DeFi",
+  "Private Investment Platform": "DeFi",
+  "RWA Lending": "DeFi",
+  "Restaked BTC": "DeFi",
+  "Token Locker": "DeFi",
+  "Volume Boosting": "DeFi",
+  "Yield Lottery": "DeFi",
+  CeDeFi: "DeFi",
 
   // Stablecoins
   Stablecoins: "Stablecoins",
   Stablecoin: "Stablecoins",
+  "Stablecoin Issuer": "Stablecoins",
+  "Dual-Token Stablecoin": "Stablecoins",
 
   // Exchanges
   Exchanges: "Exchanges",
   CEX: "Exchanges",
+  "OTC Marketplace": "Exchanges",
 
   // Blockchains
   Blockchains: "Blockchains",
@@ -88,6 +102,8 @@ export const CATEGORY_GROUP: Record<string, string> = {
   DA: "Blockchains",
   Appchain: "Blockchains",
   "Move VM": "Blockchains",
+  "Anchor BTC": "Blockchains",
+  "Decentralized BTC": "Blockchains",
 
   // Consumer
   Consumer: "Consumer",
@@ -106,9 +122,22 @@ export const CATEGORY_GROUP: Record<string, string> = {
   "Move-To-Earn": "Consumer",
   Creator: "Consumer",
   Wallet: "Consumer",
+  Wallets: "Consumer",
   Payment: "Consumer",
   Payments: "Consumer",
   Meme: "Consumer",
+  // Consumer — additional DefiLlama categories
+  "Coins Tracker": "Consumer",
+  "Crypto Card Issuer": "Consumer",
+  Domains: "Consumer",
+  Interface: "Consumer",
+  "Luck Games": "Consumer",
+  "NFT Automated Strategies": "Consumer",
+  "NFT Launchpad": "Consumer",
+  "Physical TCG": "Consumer",
+  "Portfolio Tracker": "Consumer",
+  "Telegram Bot": "Consumer",
+  "Trading App": "Consumer",
 
   // DePIN
   DePIN: "DePIN",
@@ -118,6 +147,12 @@ export const CATEGORY_GROUP: Record<string, string> = {
   DeWi: "DePIN",
   AI: "DePIN",
   GPU: "DePIN",
+  // DePIN — additional DefiLlama categories
+  "AI Agents": "DePIN",
+  "Decentralized AI": "DePIN",
+  "Gamified Mining": "DePIN",
+  "Mining Pools": "DePIN",
+  "Video Infrastructure": "DePIN",
 
   // Infrastructure
   Middleware: "Infrastructure",
@@ -132,6 +167,13 @@ export const CATEGORY_GROUP: Record<string, string> = {
   API: "Infrastructure",
   Analytics: "Infrastructure",
   Indexer: "Infrastructure",
+  // Infrastructure — additional DefiLlama categories
+  "Block Builders": "Infrastructure",
+  "DAO Service Provider": "Infrastructure",
+  "Developer Tools": "Infrastructure",
+  "Risk Curators": "Infrastructure",
+  "Security Extension": "Infrastructure",
+  Services: "Infrastructure",
 
   // Other
   Other: "Other",

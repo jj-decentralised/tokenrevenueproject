@@ -180,8 +180,8 @@ export async function GET(): Promise<NextResponse> {
       })
       .sort((a, b) => (Number(b.tvl) || 0) - (Number(a.tvl) || 0));
 
-    // Top 20 get full quarterly detail (expensive processing)
-    const top20 = sorted.slice(0, 20);
+    // Top 100 get full quarterly detail
+    const top20 = sorted.slice(0, 100);
 
     // Lightweight array for ALL protocols with TVL > 0
     const allProtocolsTVL: ProtocolTVLLite[] = sorted.map((p) => ({

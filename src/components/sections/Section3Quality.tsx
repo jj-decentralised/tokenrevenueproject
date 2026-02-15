@@ -19,7 +19,7 @@ import {
   Line,
   TooltipProps,
 } from "recharts";
-import { useDataContext, groupByCategory, LiveProtocolFee } from "@/lib/DataContext";
+import { useDataContext, LiveProtocolFee } from "@/lib/DataContext";
 import { findProtocolMapping } from "@/lib/protocolTokenMap";
 import { getCategoryGroup } from "@/lib/categories";
 import { ChartExport } from "@/components/ui/ChartExport";
@@ -848,12 +848,6 @@ export default function Section3Quality() {
   const [expandedBreakdownYears, setExpandedBreakdownYears] = useState<Set<string>>(new Set());
   const [expandedBreakdownSectors, setExpandedBreakdownSectors] = useState<Set<string>>(new Set());
 
-  // ----- Live data: group protocols by DefiLlama category -----
-  const liveCategoryGroups = useMemo(() => {
-    if (!hasLiveFees) return null;
-    return groupByCategory(ctx.fees!.protocols);
-  }, [hasLiveFees, ctx.fees]);
-
   // ----- Pie chart data: live DefiLlama categories or static fallback -----
   const pieData = useMemo(() => {
     if (hasLiveFees && ctx.fees) {
@@ -959,17 +953,28 @@ export default function Section3Quality() {
       marketCapT: marketCapByYear.get(d.year) ?? null,
     }));
 
-    if (liveCategoryGroups) {
-      // Build a live "latest" row from grouped protocol fees.
+    if (hasLiveFees && ctx.fees) {
+      // Build a live "latest" row from protocol fees with slug-based categorization.
+      const sectorLabelMap: Record<string, string> = {
+        DeFi: "defi", Exchanges: "exchanges", Stablecoins: "stablecoins",
+        Blockchains: "blockchains", Consumer: "consumer", DePIN: "depin",
+        Infrastructure: "infrastructure", Other: "other",
+      };
       const liveSectorTotals: Record<string, number> = {};
       for (const key of SECTOR_KEYS) {
         liveSectorTotals[key] = 0;
       }
-      for (const [cat, data] of Object.entries(liveCategoryGroups)) {
-        const sector = mapCategoryToSector(cat);
-        if (liveSectorTotals[sector] !== undefined) {
+      for (const p of ctx.fees.protocols) {
+        const val30d = p.total30d || 0;
+        if (val30d <= 0) continue;
+        const pSlug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+        const group = getCategoryGroup(p.category || "Other", pSlug);
+        const sector = sectorLabelMap[group] || "other";
+        // Wallets mapped to "consumer" since SECTOR_KEYS doesn't have "wallets"
+        const mappedSector = sector === "wallets" ? "consumer" : sector;
+        if (liveSectorTotals[mappedSector] !== undefined) {
           // Annualize from 30d data: (total30d / 30) * 365, convert to billions
-          liveSectorTotals[sector] += (data.total30d / 30) * 365 / 1e9;
+          liveSectorTotals[mappedSector] += (val30d / 30) * 365 / 1e9;
         }
       }
 
@@ -987,7 +992,7 @@ export default function Section3Quality() {
     }
 
     return base;
-  }, [liveCategoryGroups, marketCapByYear]);
+  }, [hasLiveFees, ctx.fees, marketCapByYear]);
 
   // ----- Breakdown table: year-by-year sector data with constituent protocols -----
   const breakdownTableData = useMemo(() => {

@@ -425,8 +425,10 @@ export default function Section6Protocols() {
     }
 
     const tvlByName = new Map<string, typeof tvlProtocols[0]>();
+    const tvlBySlug = new Map<string, typeof tvlProtocols[0]>();
     for (const t of tvlProtocols) {
       tvlByName.set(t.name.toLowerCase(), t);
+      if (t.slug) tvlBySlug.set(t.slug.toLowerCase(), t);
     }
 
     const earningsByName = new Map<string, typeof earningsProtocols[0]>();
@@ -489,7 +491,8 @@ export default function Section6Protocols() {
       const hasToken = mapping ? mapping.hasToken : (tokenMatch != null);
 
       // Match TVL (O(1) lookup) — allProtocolsTVL includes mcap field
-      const tvlMatch = tvlByName.get(nameLower) || tvlByName.get(displayLower);
+      const pSlug = (p.slug || p.name.toLowerCase().replace(/\s+/g, "-")).toLowerCase();
+      const tvlMatch = tvlByName.get(nameLower) || tvlByName.get(displayLower) || tvlBySlug.get(pSlug);
 
       // Match earnings (O(1) lookup)
       const earningsMatch = earningsByName.get(nameLower) || earningsById.get(nameLower) || earningsByName.get(displayLower);
@@ -667,7 +670,7 @@ export default function Section6Protocols() {
     return mergedProtocols
       .filter((p) => p.change7d != null)
       .sort((a, b) => Math.abs(b.change7d ?? 0) - Math.abs(a.change7d ?? 0))
-      .slice(0, 120);
+      .slice(0, 250);
   }, [mergedProtocols]);
 
   // CSV export data for table
