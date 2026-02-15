@@ -11,7 +11,8 @@ import { NextRequest, NextResponse } from "next/server";
 // additional data.
 // ----------------------------------------------------------------
 
-export const revalidate = 3600; // 1 hour
+// force-dynamic: skip ISR caching — the overview response (~23MB) exceeds
+// Next.js's 2MB data-cache limit and would otherwise log a warning every request.
 export const dynamic = "force-dynamic";
 
 // ---------- Pro API helper ----------
@@ -111,7 +112,9 @@ interface HoldersRevenueResponse {
 // ---------- helpers ----------
 
 async function fetchJSON(url: string): Promise<unknown> {
-  const res = await fetch(url, { next: { revalidate: 3600 } });
+  // Use no-store: the route is force-dynamic so per-fetch caching adds no value,
+  // and the overview response (~23MB) exceeds Next.js's 2MB data cache limit.
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`DefiLlama API error: ${res.status} ${res.statusText} for ${url}`);
   }
@@ -205,7 +208,10 @@ async function handleOverview(): Promise<NextResponse<OverviewResponse>> {
         .sort((a, b) => (b.total24h ?? 0) - (a.total24h ?? 0))
     : [];
 
-  const totalDataChart = parseTotalDataChart(data.totalDataChart);
+  // Trim chart to last 730 days to keep payload manageable
+  const fullChart = parseTotalDataChart(data.totalDataChart);
+  const cutoff = Math.floor(Date.now() / 1000) - 730 * 86400;
+  const totalDataChart = fullChart.filter((d) => d.date >= cutoff);
 
   const totalFees24h = safeNum(data.total24h) ?? protocols.reduce((s, p) => s + (p.total24h ?? 0), 0);
   const totalRevenue24h = safeNum(data.totalRevenue24h) ?? protocols.reduce((s, p) => s + (p.revenue24h ?? 0), 0);

@@ -106,6 +106,7 @@ export interface LiveEarningsData {
   protocols: Array<{
     id: string;
     name: string;
+    aliases: string[];
     latestRevenue: number;
     latestEarnings: number;
     margin: number;
@@ -547,6 +548,7 @@ async function fetchEarnings(): Promise<LiveEarningsData | null> {
       ? raw.protocols.map((p: any) => ({
           id: String(p.id ?? ""),
           name: String(p.name ?? ""),
+          aliases: Array.isArray(p.aliases) ? p.aliases.map(String) : [],
           latestRevenue: Number(p.latestRevenue ?? 0),
           latestEarnings: Number(p.latestEarnings ?? 0),
           margin: Number(p.margin ?? 0),
@@ -830,9 +832,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     if (etfData.status === "fulfilled" && etfData.value) {
       setEtf(etfData.value);
-    } else {
-      errs.push("ETF flow data fetch failed");
     }
+    // ETF data is optional (Pro-only) — don't report as error
 
     if (protocolHistoryData.status === "fulfilled" && protocolHistoryData.value) {
       setProtocolHistory(protocolHistoryData.value);
@@ -954,12 +955,12 @@ export function useProtocolLookup() {
       }
     }
 
-    // Index earnings
+    // Index earnings — use aliases for robust cross-source matching
     if (ctx.earnings?.protocols) {
       for (const p of ctx.earnings.protocols) {
-        const keys = [p.name.toLowerCase(), p.id.toLowerCase()];
+        const keys = [p.name.toLowerCase(), p.id.toLowerCase(), ...p.aliases.map(a => a.toLowerCase())];
         for (const key of keys) {
-          if (map.has(key)) { map.get(key)!.earnings = p; break; }
+          if (map.has(key) && !map.get(key)!.earnings) { map.get(key)!.earnings = p; }
         }
       }
     }

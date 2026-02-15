@@ -51,6 +51,8 @@ const SECTOR_LABELS: Record<string, string> = {
   consumer: "Consumer",
   wallets: "Wallets",
   depin: "DePIN",
+  infrastructure: "Infrastructure",
+  payments: "Payments",
   other: "Other",
 };
 
@@ -61,9 +63,12 @@ const SECTOR_KEYS = Object.keys(SECTOR_LABELS);
  * DefiLlama uses categories like "Dexes", "Lending", "Derivatives", etc.
  */
 const CATEGORY_TO_SECTOR: Record<string, string> = {
+  // DeFi
   Dexes: "defi",
+  DEX: "defi",
   Lending: "defi",
   Derivatives: "defi",
+  Perpetuals: "defi",
   "Liquid Staking": "defi",
   Yield: "defi",
   Bridge: "defi",
@@ -72,22 +77,99 @@ const CATEGORY_TO_SECTOR: Record<string, string> = {
   Liquidations: "defi",
   "Leveraged Farming": "defi",
   Options: "defi",
-  "Insurance": "defi",
-  "Prediction Market": "consumer",
+  Insurance: "defi",
+  "DEX Aggregator": "defi",
+  Synthetics: "defi",
+  Indexes: "defi",
+  "Reserve Currency": "defi",
+  "Algo-Stables": "defi",
+  "NFT Fi": "defi",
+  "Liquid Restaking": "defi",
+  Restaking: "defi",
+  RWA: "defi",
+  MEV: "defi",
+  "Liquidity Manager": "defi",
+  Farm: "defi",
+  "Leveraged Yield": "defi",
+  "Uncollateralized Lending": "defi",
+  "Flash Loans": "defi",
+  AMM: "defi",
+  "Margin Trading": "defi",
+  "Borrowing Lending": "defi",
+  SoFi: "defi",
+  "Structured Products": "defi",
+  "Staking Pool": "defi",
+  "Cross Chain": "defi",
+  "Decentralized Stablecoin": "defi",
+
+  // Exchanges
   CEX: "exchanges",
+
+  // Blockchains
   Chain: "blockchains",
   EVM: "blockchains",
   Rollup: "blockchains",
+  Parachain: "blockchains",
+  Cosmos: "blockchains",
+  Sidechain: "blockchains",
+  Subnet: "blockchains",
+  L1: "blockchains",
+  L2: "blockchains",
+  Blockchain: "blockchains",
+  "Modular Blockchain": "blockchains",
+  "Bitcoin Sidechain": "blockchains",
+  "Optimistic Rollup": "blockchains",
+  "ZK Rollup": "blockchains",
+  Validium: "blockchains",
+  DA: "blockchains",
+
+  // Stablecoins
   Stablecoins: "stablecoins",
-  Wallet: "wallets",
+
+  // Consumer
   "NFT Marketplace": "consumer",
   "NFT Lending": "consumer",
   Gaming: "consumer",
   Social: "consumer",
-  "DePIN": "depin",
+  "Prediction Market": "consumer",
   Launchpad: "consumer",
-  Middleware: "other",
-  Oracle: "other",
+  SocialFi: "consumer",
+  "Fan Token": "consumer",
+  Gambling: "consumer",
+  Identity: "consumer",
+  Music: "consumer",
+  Metaverse: "consumer",
+  "Play-To-Earn": "consumer",
+  "Move-To-Earn": "consumer",
+  NFT: "consumer",
+  Creator: "consumer",
+
+  // Wallets / Payments
+  Wallet: "wallets",
+  Payment: "wallets",
+  Payments: "wallets",
+
+  // DePIN
+  DePIN: "depin",
+  Compute: "depin",
+  Storage: "depin",
+  IoT: "depin",
+  DeWi: "depin",
+
+  // Infrastructure
+  Middleware: "infrastructure",
+  Oracle: "infrastructure",
+  Data: "infrastructure",
+  Infrastructure: "infrastructure",
+  Interoperability: "infrastructure",
+  Privacy: "infrastructure",
+  Automation: "infrastructure",
+  Relayer: "infrastructure",
+  RPC: "infrastructure",
+  API: "infrastructure",
+  Analytics: "infrastructure",
+
+  // Other
   Other: "other",
 };
 
@@ -134,6 +216,8 @@ const PIE_COLORS_LIVE: Record<string, string> = {
   Exchanges: "#8b5cf6",
   Consumer: "#f59e0b",
   DePIN: "#ec4899",
+  Infrastructure: "#6366f1",
+  Payments: "#14b8a6",
   Other: "#94a3b8",
 };
 
@@ -365,6 +449,7 @@ function SectorDrillDown({
   earningsProtocols: Array<{
     id: string;
     name: string;
+    aliases: string[];
     latestRevenue: number;
     latestEarnings: number;
     margin: number;
@@ -381,9 +466,14 @@ function SectorDrillDown({
       tokenById.set(t.id.toLowerCase(), t);
       tokenByName.set(t.name.toLowerCase(), t);
     }
-    const earningsByName = new Map<string, (typeof earningsProtocols)[0]>();
+    // Build earnings lookup using aliases for robust cross-source matching
+    const earningsByKey = new Map<string, (typeof earningsProtocols)[0]>();
     for (const e of earningsProtocols) {
-      earningsByName.set(e.name.toLowerCase(), e);
+      earningsByKey.set(e.name.toLowerCase(), e);
+      earningsByKey.set(e.id.toLowerCase(), e);
+      for (const alias of e.aliases) {
+        earningsByKey.set(alias.toLowerCase(), e);
+      }
     }
 
     // Group protocols by sector
@@ -395,7 +485,7 @@ function SectorDrillDown({
       const tokenMatch = mapping?.coinGeckoId
         ? tokenById.get(mapping.coinGeckoId.toLowerCase())
         : (tokenByName.get(p.name.toLowerCase()) || tokenById.get(p.name.toLowerCase()) || tokenByName.get((p.displayName || "").toLowerCase()));
-      const earningsMatch = earningsByName.get(p.name.toLowerCase()) || earningsByName.get((p.displayName || "").toLowerCase());
+      const earningsMatch = earningsByKey.get(p.name.toLowerCase()) || earningsByKey.get((p.displayName || "").toLowerCase());
 
       const sp: SectorProtocol = {
         name: p.name,
@@ -425,6 +515,8 @@ function SectorDrillDown({
       consumer: "Consumer",
       wallets: "Wallets",
       depin: "DePIN",
+      infrastructure: "Infrastructure",
+      payments: "Payments",
       other: "Other",
     };
 
@@ -662,6 +754,10 @@ export default function Section3Quality() {
             ? "Wallets"
             : sector === "depin"
             ? "DePIN"
+            : sector === "infrastructure"
+            ? "Infrastructure"
+            : sector === "payments"
+            ? "Payments"
             : "Other";
         sectorTotals[sectorLabel] = (sectorTotals[sectorLabel] || 0) + data.total30d;
       }
@@ -710,6 +806,10 @@ export default function Section3Quality() {
             ? "Wallets"
             : sector === "depin"
             ? "DePIN"
+            : sector === "infrastructure"
+            ? "Infrastructure"
+            : sector === "payments"
+            ? "Payments"
             : "Other";
         sectorTotals[sectorLabel] = (sectorTotals[sectorLabel] || 0) + data.total30d;
       }

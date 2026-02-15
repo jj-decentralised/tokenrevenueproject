@@ -12,7 +12,7 @@ import { NextResponse } from "next/server";
 // additional data.
 // ----------------------------------------------------------------
 
-export const revalidate = 3600; // 1 hour
+export const dynamic = "force-dynamic";
 
 // ---------- Pro API helper ----------
 
@@ -51,7 +51,9 @@ interface ActivityResponse {
 // ---------- helpers ----------
 
 async function fetchJSON(url: string): Promise<unknown> {
-  const res = await fetch(url, { next: { revalidate: 3600 } });
+  // Use no-store: the fees overview response (~23MB) exceeds Next.js's 2MB
+  // data cache limit — attempting to cache it produces a warning every request.
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(
       `DefiLlama API error: ${res.status} ${res.statusText} for ${url}`,

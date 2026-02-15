@@ -310,6 +310,67 @@ function WSJTooltip({
 }
 
 // ============================================================
+// Slug helper
+// ============================================================
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+// ============================================================
+// Dynamic protocol mapping builder
+// ============================================================
+
+function buildDynamicMapping(
+  slug: string,
+  ctx: {
+    fees?: { protocols: LiveProtocolFee[] } | null;
+    coinGecko?: LiveCoinGeckoData | null;
+  }
+): ProtocolMapping | null {
+  if (!ctx.fees?.protocols) return null;
+
+  // Search DefiLlama protocols for one whose slugified name matches the slug
+  const matched = ctx.fees.protocols.find((p) => {
+    return (
+      slugify(p.name) === slug ||
+      slugify(p.displayName) === slug ||
+      p.name.toLowerCase() === slug ||
+      p.displayName.toLowerCase() === slug
+    );
+  });
+
+  if (!matched) return null;
+
+  // Try to find a CoinGecko token by matching the protocol name
+  let coinGeckoId: string | null = null;
+  if (ctx.coinGecko?.tokens) {
+    const cgMatch = ctx.coinGecko.tokens.find(
+      (t) =>
+        t.name.toLowerCase() === matched.name.toLowerCase() ||
+        t.name.toLowerCase() === matched.displayName.toLowerCase() ||
+        t.id.toLowerCase() === slug ||
+        t.symbol.toLowerCase() === slug
+    );
+    if (cgMatch) {
+      coinGeckoId = cgMatch.id;
+    }
+  }
+
+  return {
+    defiLlama: matched.name,
+    coinGecko: coinGeckoId,
+    tokenTerminal: slugify(matched.name),
+    displayName: matched.displayName || matched.name,
+  };
+}
+
+// ============================================================
 // Data lookup helpers
 // ============================================================
 
@@ -318,26 +379,43 @@ function findDefiLlamaProtocol(
   defiLlamaName: string
 ): LiveProtocolFee | null {
   if (!protocols) return null;
+  const target = defiLlamaName.toLowerCase();
+  const targetSlug = slugify(defiLlamaName);
   return (
     protocols.find(
       (p) =>
-        p.name.toLowerCase() === defiLlamaName.toLowerCase() ||
-        p.displayName.toLowerCase() === defiLlamaName.toLowerCase()
+        p.name.toLowerCase() === target ||
+        p.displayName.toLowerCase() === target ||
+        slugify(p.name) === targetSlug ||
+        slugify(p.displayName) === targetSlug
     ) ?? null
   );
 }
 
 function findCoinGeckoToken(
   data: LiveCoinGeckoData | null,
-  coinGeckoId: string | null
+  coinGeckoId: string | null,
+  fallbackName?: string
 ) {
-  if (!data?.tokens || !coinGeckoId) return null;
-  return (
-    data.tokens.find(
-      (t) =>
-        t.id.toLowerCase() === coinGeckoId.toLowerCase()
-    ) ?? null
-  );
+  if (!data?.tokens) return null;
+  if (coinGeckoId) {
+    const byId = data.tokens.find(
+      (t) => t.id.toLowerCase() === coinGeckoId.toLowerCase()
+    );
+    if (byId) return byId;
+  }
+  // Fallback: try matching by token name (case-insensitive)
+  if (fallbackName) {
+    const target = fallbackName.toLowerCase();
+    return (
+      data.tokens.find(
+        (t) =>
+          t.name.toLowerCase() === target ||
+          t.symbol.toLowerCase() === target
+      ) ?? null
+    );
+  }
+  return null;
 }
 
 function findTokenTerminalProtocol(
@@ -474,7 +552,10 @@ export default function ProtocolProfilePage() {
   const slug = typeof params.slug === "string" ? params.slug : "";
   const ctx = useDataContext();
 
-  const mapping = PROTOCOL_MAP[slug] ?? null;
+  const mapping = useMemo(
+    () => PROTOCOL_MAP[slug] ?? buildDynamicMapping(slug, ctx),
+    [slug, ctx]
+  );
 
   // ---- Gather all data sources for this protocol ----
 
@@ -487,7 +568,10 @@ export default function ProtocolProfilePage() {
   );
 
   const coinGeckoToken = useMemo(
-    () => (mapping ? findCoinGeckoToken(ctx.coinGecko, mapping.coinGecko) : null),
+    () =>
+      mapping
+        ? findCoinGeckoToken(ctx.coinGecko, mapping.coinGecko, mapping.displayName)
+        : null,
     [ctx.coinGecko, mapping]
   );
 
@@ -596,6 +680,20 @@ export default function ProtocolProfilePage() {
   }, [tokenTerminalData]);
 
   // ============================================================
+  // All available protocols from live data (for not-found page)
+  // ============================================================
+
+  const allLiveProtocols = useMemo(() => {
+    if (!ctx.fees?.protocols) return [];
+    return [...ctx.fees.protocols]
+      .filter((p) => (p.revenue24h ?? p.total24h ?? 0) > 0)
+      .sort(
+        (a, b) =>
+          (b.revenue24h ?? b.total24h ?? 0) - (a.revenue24h ?? a.total24h ?? 0)
+      );
+  }, [ctx.fees]);
+
+  // ============================================================
   // Loading state
   // ============================================================
 
@@ -628,9 +726,12 @@ export default function ProtocolProfilePage() {
   // ============================================================
 
   if (!mapping) {
+    const topProtocols = allLiveProtocols.slice(0, 50);
+    const totalCount = allLiveProtocols.length;
+
     return (
       <div className="min-h-screen pt-16">
-        <div className="max-w-2xl">
+        <div className="max-w-3xl">
           <Link
             href="/"
             className="inline-flex items-center gap-1.5 text-[13px] text-[#0274B6] hover:text-[#014d7a] font-medium transition-colors mb-8"
@@ -645,9 +746,17 @@ export default function ProtocolProfilePage() {
             Protocol not found
           </h1>
           <p className="text-[14px] text-[#666666] mt-3" style={{ lineHeight: "1.5" }}>
-            No protocol matches the slug &ldquo;{slug}&rdquo;. Available protocols:
+            No protocol matches the slug &ldquo;{slug}&rdquo;.
           </p>
-          <div className="mt-6 flex flex-wrap gap-2">
+
+          {/* Curated protocols */}
+          <h2
+            className="font-serif font-bold text-[#111111] mt-8 mb-3"
+            style={{ fontSize: "20px" }}
+          >
+            Featured Protocols
+          </h2>
+          <div className="flex flex-wrap gap-2">
             {Object.entries(PROTOCOL_MAP).map(([key, val]) => (
               <Link
                 key={key}
@@ -659,6 +768,58 @@ export default function ProtocolProfilePage() {
               </Link>
             ))}
           </div>
+
+          {/* All live protocols from DefiLlama */}
+          <h2
+            className="font-serif font-bold text-[#111111] mt-10 mb-1"
+            style={{ fontSize: "20px" }}
+          >
+            All Protocols by Revenue
+          </h2>
+          <p className="text-[13px] text-[#999999] mb-4">
+            Showing top 50 of {totalCount.toLocaleString()} protocols from
+            DefiLlama (sorted by daily revenue).
+          </p>
+          <hr className="wsj-rule mb-4" />
+
+          {topProtocols.length === 0 ? (
+            <p className="text-[13px] text-[#999999]">
+              No live protocol data available yet. Please wait for data to load.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {topProtocols.map((p, i) => {
+                const pSlug = slugify(p.name);
+                const dailyRev = p.revenue24h ?? p.total24h ?? 0;
+                return (
+                  <Link
+                    key={pSlug + i}
+                    href={`/protocol/${pSlug}`}
+                    className="flex items-center justify-between px-3 py-2 border border-[#e8e8e8] hover:border-[#999999] transition-colors group"
+                    style={{ borderRadius: 0 }}
+                  >
+                    <span className="text-[13px] text-[#111111] group-hover:text-[#0274B6] transition-colors font-medium">
+                      <span className="text-[11px] text-[#999999] mr-2 font-normal">
+                        {i + 1}.
+                      </span>
+                      {p.displayName || p.name}
+                    </span>
+                    <span className="text-[12px] text-[#666666] font-mono">
+                      {formatUSDCompact(dailyRev)}/d
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+
+          {totalCount > 50 && (
+            <p className="text-[12px] text-[#999999] mt-4">
+              ...and {(totalCount - 50).toLocaleString()} more protocols
+              available. Navigate to any protocol by visiting{" "}
+              <code className="text-[#0274B6]">/protocol/protocol-name</code>.
+            </p>
+          )}
         </div>
       </div>
     );
@@ -1448,9 +1609,9 @@ export default function ProtocolProfilePage() {
       <footer className="mt-16">
         <hr className="wsj-rule-heavy mb-6" />
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-6">
-          <div>
-            <p className="stat-label mb-2">Other Protocols</p>
-            <div className="flex flex-wrap gap-2">
+          <div className="flex-1 min-w-0">
+            <p className="stat-label mb-2">Featured Protocols</p>
+            <div className="flex flex-wrap gap-2 mb-4">
               {Object.entries(PROTOCOL_MAP)
                 .filter(([key]) => key !== slug)
                 .map(([key, val]) => (
@@ -1464,12 +1625,47 @@ export default function ProtocolProfilePage() {
                   </Link>
                 ))}
             </div>
+            {allLiveProtocols.length > 0 && (
+              <>
+                <p className="stat-label mb-2">
+                  Top Protocols by Revenue ({allLiveProtocols.length.toLocaleString()} total)
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {allLiveProtocols
+                    .slice(0, 20)
+                    .filter((p) => {
+                      const pSlug = slugify(p.name);
+                      return pSlug !== slug && !PROTOCOL_MAP[pSlug];
+                    })
+                    .slice(0, 12)
+                    .map((p) => {
+                      const pSlug = slugify(p.name);
+                      return (
+                        <Link
+                          key={pSlug}
+                          href={`/protocol/${pSlug}`}
+                          className="inline-flex items-center px-2 py-0.5 text-[12px] font-medium text-[#0274B6] hover:text-[#014d7a] transition-colors border border-[#e8e8e8] hover:border-[#999999]"
+                          style={{ borderRadius: 0 }}
+                        >
+                          {p.displayName || p.name}
+                        </Link>
+                      );
+                    })}
+                </div>
+              </>
+            )}
           </div>
-          <div className="text-right">
+          <div className="text-right shrink-0">
             <p className="text-[11px] text-[#999999]" style={{ lineHeight: "1.6" }}>
               Data sources: DefiLlama, CoinGecko, TokenTerminal
               <br />
               Revenue figures are annualized estimates.
+              <br />
+              {allLiveProtocols.length > 0 && (
+                <span>
+                  {allLiveProtocols.length.toLocaleString()} protocols available
+                </span>
+              )}
             </p>
           </div>
         </div>

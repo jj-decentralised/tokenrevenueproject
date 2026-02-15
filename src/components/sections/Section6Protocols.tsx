@@ -14,7 +14,7 @@ import {
   Legend,
 } from "recharts";
 import { useDataContext, LiveProtocolFee } from "@/lib/DataContext";
-import { findProtocolMapping } from "@/lib/protocolTokenMap";
+import { findProtocolMapping, PROTOCOL_TOKEN_MAP } from "@/lib/protocolTokenMap";
 import { CategoryTreeTable } from "@/components/ui/CategoryTreeTable";
 import { ChartExport } from "@/components/ui/ChartExport";
 import {
@@ -28,45 +28,180 @@ import {
 // ---------------------------------------------------------------------------
 
 const CATEGORY_COLORS: Record<string, string> = {
+  // DeFi
   DeFi: "#3b82f6",
   Dexes: "#3b82f6",
+  DEX: "#3b82f6",
   Lending: "#3b82f6",
   Yield: "#3b82f6",
   "Yield Aggregator": "#3b82f6",
   "Liquid Staking": "#3b82f6",
   Derivatives: "#3b82f6",
+  Perpetuals: "#3b82f6",
+  Bridge: "#3b82f6",
+  CDP: "#3b82f6",
+  Liquidations: "#3b82f6",
+  "Leveraged Farming": "#3b82f6",
+  Options: "#3b82f6",
+  Insurance: "#3b82f6",
+  "DEX Aggregator": "#3b82f6",
+  Synthetics: "#3b82f6",
+  Indexes: "#3b82f6",
+  "Reserve Currency": "#3b82f6",
+  "Algo-Stables": "#3b82f6",
+  "NFT Fi": "#3b82f6",
+  "Liquid Restaking": "#3b82f6",
+  Restaking: "#3b82f6",
+  RWA: "#3b82f6",
+  MEV: "#3b82f6",
+  "Liquidity Manager": "#3b82f6",
+  Farm: "#3b82f6",
+  "Leveraged Yield": "#3b82f6",
+  "Uncollateralized Lending": "#3b82f6",
+  "Flash Loans": "#3b82f6",
+  AMM: "#3b82f6",
+  "Margin Trading": "#3b82f6",
+  "Borrowing Lending": "#3b82f6",
+  SoFi: "#3b82f6",
+  "Structured Products": "#3b82f6",
+  "Staking Pool": "#3b82f6",
+  "Cross Chain": "#3b82f6",
+  "Decentralized Stablecoin": "#3b82f6",
+  // Stablecoins
   Stablecoins: "#10b981",
+  // Exchanges
   Exchanges: "#8b5cf6",
   CEX: "#8b5cf6",
+  // Blockchains
   Blockchains: "#f59e0b",
   Chain: "#f59e0b",
+  EVM: "#f59e0b",
   "EVM Compatible": "#f59e0b",
+  Rollup: "#f59e0b",
+  Parachain: "#f59e0b",
+  Cosmos: "#f59e0b",
+  Sidechain: "#f59e0b",
+  Subnet: "#f59e0b",
+  L1: "#f59e0b",
+  L2: "#f59e0b",
+  Blockchain: "#f59e0b",
+  "Modular Blockchain": "#f59e0b",
+  "Bitcoin Sidechain": "#f59e0b",
+  "Optimistic Rollup": "#f59e0b",
+  "ZK Rollup": "#f59e0b",
+  Validium: "#f59e0b",
+  DA: "#f59e0b",
+  // Consumer
   Consumer: "#ef4444",
+  "NFT Marketplace": "#ef4444",
+  "NFT Lending": "#ef4444",
+  Gaming: "#ef4444",
+  Social: "#ef4444",
+  "Prediction Market": "#ef4444",
+  Launchpad: "#ef4444",
+  SocialFi: "#ef4444",
+  "Fan Token": "#ef4444",
+  Gambling: "#ef4444",
+  Identity: "#ef4444",
+  Music: "#ef4444",
+  Metaverse: "#ef4444",
+  "Play-To-Earn": "#ef4444",
+  "Move-To-Earn": "#ef4444",
+  NFT: "#ef4444",
+  Creator: "#ef4444",
+  // DePIN
+  DePIN: "#ec4899",
+  Compute: "#ec4899",
+  Storage: "#ec4899",
+  IoT: "#ec4899",
+  DeWi: "#ec4899",
+  // Infrastructure
+  Middleware: "#6366f1",
+  Oracle: "#6366f1",
+  Data: "#6366f1",
+  Infrastructure: "#6366f1",
+  Interoperability: "#6366f1",
+  Privacy: "#6366f1",
+  Automation: "#6366f1",
+  Relayer: "#6366f1",
+  RPC: "#6366f1",
+  API: "#6366f1",
+  Analytics: "#6366f1",
+  // Wallets
+  Wallet: "#06b6d4",
+  Payment: "#06b6d4",
+  Payments: "#06b6d4",
 };
 
 const CATEGORY_GROUP: Record<string, string> = {
+  // DeFi
   DeFi: "DeFi",
   Dexes: "DeFi",
+  DEX: "DeFi",
   Lending: "DeFi",
   Yield: "DeFi",
   "Yield Aggregator": "DeFi",
   "Liquid Staking": "DeFi",
   Derivatives: "DeFi",
-  DEX: "DeFi",
+  Perpetuals: "DeFi",
   Bridge: "DeFi",
   CDP: "DeFi",
   Options: "DeFi",
   Insurance: "DeFi",
   Liquidations: "DeFi",
   "Leveraged Farming": "DeFi",
+  "DEX Aggregator": "DeFi",
+  Synthetics: "DeFi",
+  Indexes: "DeFi",
+  "Reserve Currency": "DeFi",
+  "Algo-Stables": "DeFi",
+  "NFT Fi": "DeFi",
+  "Liquid Restaking": "DeFi",
+  Restaking: "DeFi",
+  RWA: "DeFi",
+  MEV: "DeFi",
+  "Liquidity Manager": "DeFi",
+  Farm: "DeFi",
+  "Leveraged Yield": "DeFi",
+  "Uncollateralized Lending": "DeFi",
+  "Flash Loans": "DeFi",
+  AMM: "DeFi",
+  "Margin Trading": "DeFi",
+  "Borrowing Lending": "DeFi",
+  SoFi: "DeFi",
+  "Structured Products": "DeFi",
+  "Staking Pool": "DeFi",
+  "Cross Chain": "DeFi",
+  "Decentralized Stablecoin": "DeFi",
+
+  // Stablecoins
   Stablecoins: "Stablecoins",
+
+  // Exchanges
   Exchanges: "Exchanges",
   CEX: "Exchanges",
+
+  // Blockchains
   Blockchains: "Blockchains",
   Chain: "Blockchains",
   EVM: "Blockchains",
   "EVM Compatible": "Blockchains",
   Rollup: "Blockchains",
+  Parachain: "Blockchains",
+  Cosmos: "Blockchains",
+  Sidechain: "Blockchains",
+  Subnet: "Blockchains",
+  L1: "Blockchains",
+  L2: "Blockchains",
+  Blockchain: "Blockchains",
+  "Modular Blockchain": "Blockchains",
+  "Bitcoin Sidechain": "Blockchains",
+  "Optimistic Rollup": "Blockchains",
+  "ZK Rollup": "Blockchains",
+  Validium: "Blockchains",
+  DA: "Blockchains",
+
+  // Consumer
   Consumer: "Consumer",
   NFT: "Consumer",
   "NFT Marketplace": "Consumer",
@@ -75,10 +210,40 @@ const CATEGORY_GROUP: Record<string, string> = {
   Social: "Consumer",
   "Prediction Market": "Consumer",
   Launchpad: "Consumer",
+  SocialFi: "Consumer",
+  "Fan Token": "Consumer",
+  Gambling: "Consumer",
+  Identity: "Consumer",
+  Music: "Consumer",
+  Metaverse: "Consumer",
+  "Play-To-Earn": "Consumer",
+  "Move-To-Earn": "Consumer",
+  Creator: "Consumer",
   Wallet: "Consumer",
-  DePIN: "Other",
-  Middleware: "Other",
-  Oracle: "Other",
+  Payment: "Consumer",
+  Payments: "Consumer",
+
+  // DePIN
+  DePIN: "DePIN",
+  Compute: "DePIN",
+  Storage: "DePIN",
+  IoT: "DePIN",
+  DeWi: "DePIN",
+
+  // Infrastructure
+  Middleware: "Infrastructure",
+  Oracle: "Infrastructure",
+  Data: "Infrastructure",
+  Infrastructure: "Infrastructure",
+  Interoperability: "Infrastructure",
+  Privacy: "Infrastructure",
+  Automation: "Infrastructure",
+  Relayer: "Infrastructure",
+  RPC: "Infrastructure",
+  API: "Infrastructure",
+  Analytics: "Infrastructure",
+
+  // Other
   Other: "Other",
 };
 
@@ -94,6 +259,8 @@ function getCategoryColor(category: string): string {
     Exchanges: "#8b5cf6",
     Blockchains: "#f59e0b",
     Consumer: "#ef4444",
+    DePIN: "#ec4899",
+    Infrastructure: "#6366f1",
     Other: "#94a3b8",
   };
   return CATEGORY_COLORS[category] || colorMap[group] || "#94a3b8";
@@ -167,7 +334,7 @@ interface MergedProtocol {
 // Filter categories
 // ---------------------------------------------------------------------------
 
-const FILTER_CATEGORIES = ["All", "DeFi", "Exchanges", "Stablecoins", "Blockchains", "Consumer"] as const;
+const FILTER_CATEGORIES = ["All", "DeFi", "Exchanges", "Stablecoins", "Blockchains", "Consumer", "Infrastructure", "DePIN"] as const;
 type FilterCategory = (typeof FILTER_CATEGORIES)[number];
 
 // ---------------------------------------------------------------------------
@@ -305,6 +472,9 @@ function CategoryLegend() {
     { label: "Stablecoins", color: "#10b981" },
     { label: "Exchanges", color: "#8b5cf6" },
     { label: "Blockchains", color: "#f59e0b" },
+    { label: "Consumer", color: "#ef4444" },
+    { label: "DePIN", color: "#ec4899" },
+    { label: "Infrastructure", color: "#6366f1" },
     { label: "Other", color: "#94a3b8" },
   ];
   return (
@@ -432,10 +602,45 @@ export default function Section6Protocols() {
     const tokenById = new Map<string, typeof tokens[0]>();
     const tokenByNameLower = new Map<string, typeof tokens[0]>();
     const tokenBySymbolLower = new Map<string, typeof tokens[0]>();
+    const tokenByFirstWord = new Map<string, typeof tokens[0]>();
     for (const t of tokens) {
       tokenById.set(t.id.toLowerCase(), t);
       tokenByNameLower.set(t.name.toLowerCase(), t);
       if (t.symbol) tokenBySymbolLower.set(t.symbol.toLowerCase(), t);
+      // Build first-word index (e.g., "curve" from "Curve DAO Token")
+      const firstWord = t.name.split(/\s+/)[0]?.toLowerCase();
+      if (firstWord && firstWord.length > 2 && !tokenByFirstWord.has(firstWord)) {
+        tokenByFirstWord.set(firstWord, t);
+      }
+    }
+
+    // Build reverse map from PROTOCOL_TOKEN_MAP: coinGeckoId -> token entry
+    // This pre-fills matches for protocols whose coinGeckoId is known
+    const tokenByCoinGeckoMapping = new Map<string, typeof tokens[0]>();
+    for (const entry of Object.values(PROTOCOL_TOKEN_MAP)) {
+      if (entry.coinGeckoId) {
+        const t = tokenById.get(entry.coinGeckoId.toLowerCase());
+        if (t) {
+          tokenByCoinGeckoMapping.set(entry.defiLlamaName.toLowerCase(), t);
+          // Also index by the map key slug
+          const slug = entry.defiLlamaName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+          tokenByCoinGeckoMapping.set(slug, t);
+        }
+      }
+    }
+
+    // Common suffixes to strip for fuzzy matching
+    const STRIP_SUFFIXES = ["-finance", "-protocol", "-network", "-exchange", "-swap", "-dao", "-fi", ".fun", ".tech"];
+
+    function stripSuffix(name: string): string {
+      let stripped = name;
+      for (const suffix of STRIP_SUFFIXES) {
+        if (stripped.endsWith(suffix)) {
+          stripped = stripped.slice(0, -suffix.length);
+          break; // Only strip one suffix
+        }
+      }
+      return stripped;
     }
 
     const tvlByName = new Map<string, typeof tvlProtocols[0]>();
@@ -457,10 +662,56 @@ export default function Section6Protocols() {
       // Use central mapping for deterministic token matching
       const mapping = findProtocolMapping(p.name);
 
-      // Match CoinGecko token - prefer mapping, fall back to name matching (O(1) lookups)
-      const tokenMatch = mapping?.coinGeckoId
-        ? tokenById.get(mapping.coinGeckoId.toLowerCase())
-        : (tokenByNameLower.get(nameLower) || tokenById.get(nameLower) || tokenByNameLower.get(displayLower) || tokenById.get(displayLower) || tokenBySymbolLower.get(nameLower));
+      // Match CoinGecko token - prefer mapping, then multi-strategy heuristic fallback
+      let tokenMatch: typeof tokens[0] | undefined;
+      if (mapping?.coinGeckoId) {
+        // Strategy 0: Direct mapping from PROTOCOL_TOKEN_MAP
+        tokenMatch = tokenById.get(mapping.coinGeckoId.toLowerCase());
+      }
+      if (!tokenMatch) {
+        // Strategy 1: Reverse map from PROTOCOL_TOKEN_MAP coinGeckoId entries
+        tokenMatch = tokenByCoinGeckoMapping.get(nameLower) || tokenByCoinGeckoMapping.get(displayLower);
+      }
+      if (!tokenMatch) {
+        // Strategy 2: Direct name/id/symbol matching (original logic)
+        tokenMatch = tokenByNameLower.get(nameLower)
+          || tokenById.get(nameLower)
+          || tokenByNameLower.get(displayLower)
+          || tokenById.get(displayLower)
+          || tokenBySymbolLower.get(nameLower);
+      }
+      if (!tokenMatch) {
+        // Strategy 3: Strip common suffixes and retry
+        const strippedName = stripSuffix(nameLower);
+        const strippedDisplay = stripSuffix(displayLower);
+        if (strippedName !== nameLower) {
+          tokenMatch = tokenByNameLower.get(strippedName)
+            || tokenById.get(strippedName)
+            || tokenBySymbolLower.get(strippedName);
+        }
+        if (!tokenMatch && strippedDisplay !== displayLower) {
+          tokenMatch = tokenByNameLower.get(strippedDisplay)
+            || tokenById.get(strippedDisplay)
+            || tokenBySymbolLower.get(strippedDisplay);
+        }
+      }
+      if (!tokenMatch) {
+        // Strategy 4: Match CoinGecko symbol against DefiLlama slug
+        // e.g., protocol slug "aave" matches token symbol "AAVE"
+        tokenMatch = tokenBySymbolLower.get(displayLower);
+      }
+      if (!tokenMatch) {
+        // Strategy 5: First word matching
+        // e.g., "curve-finance" -> first word "curve" matches "Curve DAO Token"
+        const firstWordName = nameLower.split(/[\s-]+/)[0];
+        const firstWordDisplay = displayLower.split(/[\s-]+/)[0];
+        if (firstWordName && firstWordName.length > 2) {
+          tokenMatch = tokenByFirstWord.get(firstWordName);
+        }
+        if (!tokenMatch && firstWordDisplay && firstWordDisplay.length > 2 && firstWordDisplay !== firstWordName) {
+          tokenMatch = tokenByFirstWord.get(firstWordDisplay);
+        }
+      }
 
       const hasToken = mapping ? mapping.hasToken : (tokenMatch != null);
 
@@ -663,6 +914,8 @@ export default function Section6Protocols() {
     Exchanges: "#8b5cf6",
     Blockchains: "#f59e0b",
     Consumer: "#ef4444",
+    DePIN: "#ec4899",
+    Infrastructure: "#6366f1",
     Other: "#94a3b8",
   };
 

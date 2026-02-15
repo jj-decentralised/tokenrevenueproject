@@ -423,6 +423,8 @@ export const SECTOR_COLORS: Record<string, string> = {
   consumer: "#ef4444",
   wallets: "#06b6d4",
   depin: "#ec4899",
+  infrastructure: "#6366f1",
   middleware: "#6366f1",
+  payments: "#14b8a6",
   other: "#94a3b8",
 };

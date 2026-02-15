@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 // ----------------------------------------------------------------
 
 export const revalidate = 3600; // 1 hour
+export const dynamic = "force-dynamic";
 
 // ---------- Pro API helper ----------
 
@@ -73,7 +74,8 @@ interface ETFStaticResponse {
 // ---------- helpers ----------
 
 async function fetchJSON(url: string): Promise<unknown> {
-  const res = await fetch(url, { next: { revalidate: 3600 } });
+  // Use no-store to avoid Next.js data cache issues with large/failed responses
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(
       `DefiLlama ETF API error: ${res.status} ${res.statusText} for ${url}`,
@@ -171,10 +173,18 @@ export async function GET(): Promise<NextResponse> {
     const base = getBaseUrl();
 
     // Fetch the ETF overview endpoint from Pro API
-    const etfRaw = (await fetchJSON(`${base}/etfs/overview`)) as Record<
-      string,
-      unknown
-    >;
+    // DefiLlama's ETF endpoint may not exist — gracefully degrade on 404
+    let etfRaw: Record<string, unknown>;
+    try {
+      etfRaw = (await fetchJSON(`${base}/etfs/overview`)) as Record<string, unknown>;
+    } catch (fetchErr) {
+      const msg = fetchErr instanceof Error ? fetchErr.message : "";
+      if (msg.includes("404")) {
+        // Expected: DefiLlama Pro API doesn't have an ETF endpoint yet — silently degrade
+        return NextResponse.json({ source: "static", data: null } as ETFStaticResponse);
+      }
+      throw fetchErr;
+    }
 
     // The response may contain top-level data or separate BTC/ETH sections
     const categories: ETFCategoryBreakdown[] = [];

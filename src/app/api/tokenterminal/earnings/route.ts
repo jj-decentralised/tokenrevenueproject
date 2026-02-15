@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 // ----------------------------------------------------------------
 // GET /api/tokenterminal/earnings
 //
-// Fetches earnings / margin data for key protocols from the
+// Fetches earnings / margin data for 50+ key protocols from the
 // TokenTerminal v2 API.  For each protocol, retrieves daily
 // earnings, revenue, and fees metrics (90 days) and computes
 // the margin (earnings / revenue).
@@ -11,8 +11,8 @@ import { NextResponse } from "next/server";
 // When TOKENTERMINAL_API_KEY is not set, returns a static
 // fallback so the frontend can degrade gracefully.
 //
-// Requests are made sequentially with a 200ms delay between
-// each to respect upstream rate limits.  Cached for 1 hour.
+// Requests are batched in groups of 5 with 150ms delay between
+// batches to respect upstream rate limits.  Cached for 1 hour.
 // ----------------------------------------------------------------
 
 export const revalidate = 3600; // 1 hour
@@ -21,28 +21,281 @@ export const revalidate = 3600; // 1 hour
 
 const TOKENTERMINAL_BASE_URL = "https://api.tokenterminal.com/v2";
 
-const PROTOCOL_IDS = [
-  "aave",
+/**
+ * Comprehensive list of TokenTerminal project IDs covering all major
+ * sectors: L1 blockchains, L2 rollups, DeFi protocols, stablecoins,
+ * infrastructure, and exchanges.
+ */
+const PROTOCOL_IDS: string[] = [
+  // ---- Layer 1 Blockchains ----
+  "ethereum",
+  "solana",
+  "tron",
+  "bitcoin",
+  "bnb-chain",
+  "avalanche",
+  "cardano",
+  "polkadot",
+  "near",
+  "sui",
+  "aptos",
+  "fantom",
+  "ton",
+  "celestia",
+  "sei",
+  "injective",
+  "cosmos",
+  "algorand",
+  "hedera",
+  "flow",
+
+  // ---- Layer 2 / Rollups ----
+  "base",
+  "arbitrum",
+  "optimism",
+  "polygon",
+  "starknet",
+  "zksync-era",
+  "linea",
+  "scroll",
+  "mantle",
+  "blast",
+  "manta",
+  "mode",
+
+  // ---- DeFi — DEXs ----
   "uniswap",
-  "lido",
+  "pancakeswap",
+  "raydium",
+  "curve",
+  "sushiswap",
+  "trader-joe",
+  "orca",
+  "aerodrome",
+  "velodrome",
+  "camelot",
+  "balancer",
+  "thena",
+
+  // ---- DeFi — Lending ----
+  "aave",
+  "compound",
   "maker",
+  "morpho",
+  "venus",
+  "spark",
+  "radiant",
+  "benqi",
+  "kamino",
+
+  // ---- DeFi — Derivatives / Perps ----
   "hyperliquid",
   "jupiter",
-  "raydium",
-] as const;
+  "gmx",
+  "dydx",
+  "synthetix",
+  "vertex-protocol",
+  "drift",
+  "kwenta",
+  "gains-network",
 
-/** Human-readable names for protocol IDs. */
+  // ---- DeFi — Liquid Staking ----
+  "lido",
+  "rocket-pool",
+  "jito",
+  "marinade-finance",
+  "coinbase-staked-eth",
+  "frax-ether",
+  "stakewise",
+
+  // ---- DeFi — Yield / Restaking ----
+  "eigenlayer",
+  "pendle",
+  "convex-finance",
+  "yearn-finance",
+  "ethena",
+
+  // ---- Stablecoins / Payments ----
+  "tether",
+  "circle",
+  "sky",
+  "frax",
+
+  // ---- Infrastructure ----
+  "chainlink",
+  "the-graph",
+  "filecoin",
+  "arweave",
+  "pyth-network",
+  "layerzero",
+  "wormhole",
+  "across-protocol",
+
+  // ---- NFT / Social ----
+  "opensea",
+  "blur",
+  "friend-tech",
+  "lens-protocol",
+
+  // ---- Exchanges (CEX-adjacent) ----
+  "1inch",
+];
+
+/** Human-readable names for protocol IDs. Maps to DefiLlama-compatible names. */
 const PROTOCOL_NAMES: Record<string, string> = {
-  aave: "Aave",
+  // L1s
+  ethereum: "Ethereum",
+  solana: "Solana",
+  tron: "TRON",
+  bitcoin: "Bitcoin",
+  "bnb-chain": "BSC",
+  avalanche: "Avalanche",
+  cardano: "Cardano",
+  polkadot: "Polkadot",
+  near: "NEAR",
+  sui: "Sui",
+  aptos: "Aptos",
+  fantom: "Fantom",
+  ton: "TON",
+  celestia: "Celestia",
+  sei: "Sei",
+  injective: "Injective",
+  cosmos: "Cosmos",
+  algorand: "Algorand",
+  hedera: "Hedera",
+  flow: "Flow",
+
+  // L2s
+  base: "Base",
+  arbitrum: "Arbitrum",
+  optimism: "Optimism",
+  polygon: "Polygon",
+  starknet: "Starknet",
+  "zksync-era": "zkSync Era",
+  linea: "Linea",
+  scroll: "Scroll",
+  mantle: "Mantle",
+  blast: "Blast",
+  manta: "Manta",
+  mode: "Mode",
+
+  // DEXs
   uniswap: "Uniswap",
-  lido: "Lido",
+  pancakeswap: "PancakeSwap",
+  raydium: "Raydium",
+  curve: "Curve DEX",
+  sushiswap: "SushiSwap",
+  "trader-joe": "Trader Joe",
+  orca: "Orca",
+  aerodrome: "Aerodrome",
+  velodrome: "Velodrome",
+  camelot: "Camelot",
+  balancer: "Balancer",
+  thena: "Thena",
+
+  // Lending
+  aave: "Aave",
+  compound: "Compound",
   maker: "Maker",
+  morpho: "Morpho",
+  venus: "Venus",
+  spark: "Spark",
+  radiant: "Radiant",
+  benqi: "BENQI",
+  kamino: "Kamino",
+
+  // Derivatives
   hyperliquid: "Hyperliquid",
   jupiter: "Jupiter",
-  raydium: "Raydium",
+  gmx: "GMX",
+  dydx: "dYdX",
+  synthetix: "Synthetix",
+  "vertex-protocol": "Vertex",
+  drift: "Drift",
+  kwenta: "Kwenta",
+  "gains-network": "Gains Network",
+
+  // Liquid Staking
+  lido: "Lido",
+  "rocket-pool": "Rocket Pool",
+  jito: "Jito",
+  "marinade-finance": "Marinade Finance",
+  "coinbase-staked-eth": "Coinbase Wrapped Staked ETH",
+  "frax-ether": "Frax Ether",
+  stakewise: "StakeWise",
+
+  // Yield / Restaking
+  eigenlayer: "EigenLayer",
+  pendle: "Pendle",
+  "convex-finance": "Convex Finance",
+  "yearn-finance": "Yearn Finance",
+  ethena: "Ethena",
+
+  // Stablecoins
+  tether: "Tether",
+  circle: "Circle",
+  sky: "Sky",
+  frax: "Frax",
+
+  // Infrastructure
+  chainlink: "Chainlink",
+  "the-graph": "The Graph",
+  filecoin: "Filecoin",
+  arweave: "Arweave",
+  "pyth-network": "Pyth",
+  layerzero: "LayerZero",
+  wormhole: "Wormhole",
+  "across-protocol": "Across Protocol",
+
+  // NFT / Social
+  opensea: "OpenSea",
+  blur: "Blur",
+  "friend-tech": "Friend.tech",
+  "lens-protocol": "Lens Protocol",
+
+  // Exchanges
+  "1inch": "1inch",
 };
 
-const RATE_LIMIT_DELAY_MS = 100;
+/**
+ * Aliases: multiple names that should map to the same TokenTerminal ID.
+ * Used for cross-source matching (DefiLlama name -> TT ID).
+ */
+const NAME_ALIASES: Record<string, string> = {
+  // DefiLlama name variants -> TokenTerminal ID
+  bsc: "bnb-chain",
+  "binance smart chain": "bnb-chain",
+  "bnb chain": "bnb-chain",
+  "near protocol": "near",
+  "the open network": "ton",
+  "zksync": "zksync-era",
+  "zksync era": "zksync-era",
+  "curve finance": "curve",
+  "curve dex": "curve",
+  makerdao: "maker",
+  "dydx v4": "dydx",
+  "dydx v3": "dydx",
+  "gains": "gains-network",
+  "rocket pool": "rocket-pool",
+  "marinade": "marinade-finance",
+  "cbeth": "coinbase-staked-eth",
+  "frxeth": "frax-ether",
+  "convex": "convex-finance",
+  "yearn": "yearn-finance",
+  "trader joe": "trader-joe",
+  "the graph": "the-graph",
+  "across": "across-protocol",
+  "vertex": "vertex-protocol",
+  "friend.tech": "friend-tech",
+  "friendtech": "friend-tech",
+  "lens": "lens-protocol",
+  "pyth": "pyth-network",
+  "pyth network": "pyth-network",
+  "gains network": "gains-network",
+};
+
+const BATCH_SIZE = 5;
+const RATE_LIMIT_DELAY_MS = 150;
 
 // ---------- response types ----------
 
@@ -56,6 +309,7 @@ interface RevenueHistoryEntry {
 interface ProtocolEarnings {
   id: string;
   name: string;
+  aliases: string[];
   latestRevenue: number;
   latestEarnings: number;
   margin: number;
@@ -90,6 +344,21 @@ function computeMargin(earnings: number, revenue: number): number {
   return Math.max(-1, Math.min(1, Math.round(raw * 10000) / 10000));
 }
 
+/**
+ * Build a list of name aliases for a protocol ID for cross-source matching.
+ */
+function getAliases(protocolId: string): string[] {
+  const names = new Set<string>();
+  names.add(protocolId);
+  const displayName = PROTOCOL_NAMES[protocolId];
+  if (displayName) names.add(displayName.toLowerCase());
+  // Add reverse aliases
+  for (const [alias, id] of Object.entries(NAME_ALIASES)) {
+    if (id === protocolId) names.add(alias.toLowerCase());
+  }
+  return [...names];
+}
+
 // ---------- per-protocol fetcher ----------
 
 async function fetchProtocolEarnings(
@@ -114,10 +383,7 @@ async function fetchProtocolEarnings(
     } as RequestInit);
 
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.warn(
-        `[/api/tokenterminal/earnings] ${protocolId}: HTTP ${res.status} — ${body.slice(0, 200)}`,
-      );
+      // Silently skip protocols that aren't in TokenTerminal
       return null;
     }
 
@@ -157,16 +423,14 @@ async function fetchProtocolEarnings(
     return {
       id: protocolId,
       name: PROTOCOL_NAMES[protocolId] ?? protocolId,
+      aliases: getAliases(protocolId),
       latestRevenue,
       latestEarnings,
       margin: computeMargin(latestEarnings, latestRevenue),
       revenueHistory,
     };
-  } catch (err) {
-    console.warn(
-      `[/api/tokenterminal/earnings] Failed to fetch "${protocolId}":`,
-      err instanceof Error ? err.message : err,
-    );
+  } catch {
+    // Network errors etc. — silently skip
     return null;
   }
 }
@@ -188,18 +452,21 @@ export async function GET(): Promise<NextResponse> {
   try {
     const protocols: ProtocolEarnings[] = [];
 
-    // Fetch each protocol sequentially with rate-limit delay
-    for (let i = 0; i < PROTOCOL_IDS.length; i++) {
-      const id = PROTOCOL_IDS[i];
-
-      // Add delay between requests (skip before the first one)
+    // Fetch in batches to balance speed vs rate limits
+    for (let i = 0; i < PROTOCOL_IDS.length; i += BATCH_SIZE) {
       if (i > 0) {
         await sleep(RATE_LIMIT_DELAY_MS);
       }
 
-      const result = await fetchProtocolEarnings(id, apiKey);
-      if (result) {
-        protocols.push(result);
+      const batch = PROTOCOL_IDS.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map((id) => fetchProtocolEarnings(id, apiKey)),
+      );
+
+      for (const result of results) {
+        if (result.status === "fulfilled" && result.value) {
+          protocols.push(result.value);
+        }
       }
     }
 
