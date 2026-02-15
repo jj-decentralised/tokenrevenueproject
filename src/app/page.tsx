@@ -6,6 +6,7 @@ import Section2Sentiment from "@/components/sections/Section2Sentiment";
 import Section3Quality from "@/components/sections/Section3Quality";
 import Section4Moats from "@/components/sections/Section4Moats";
 import Section5NextLeaders from "@/components/sections/Section5NextLeaders";
+import Section6Protocols from "@/components/sections/Section6Protocols";
 import { useDataContext } from "@/lib/DataContext";
 import { DataStatus } from "@/components/ui/DataStatus";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
@@ -16,6 +17,7 @@ const NAV_ITEMS = [
   { id: "quality", label: "Revenue Quality" },
   { id: "moats", label: "Moats" },
   { id: "next-leaders", label: "Next Leaders" },
+  { id: "protocols", label: "Protocol Explorer" },
 ] as const;
 
 type SectionId = (typeof NAV_ITEMS)[number]["id"];
@@ -37,6 +39,7 @@ export default function HomePage() {
     quality: null,
     moats: null,
     "next-leaders": null,
+    protocols: null,
   });
   const isScrollingToSection = useRef(false);
 
@@ -108,48 +111,55 @@ export default function HomePage() {
   return (
     <div className="min-h-screen">
       {/* ===== HEADER ===== */}
-      <header className="pt-16 pb-12">
+      <header className="pt-12 pb-8">
         <div className="flex items-start justify-between">
           <div className="max-w-3xl">
-            <p className="text-sm font-medium text-slate-400 uppercase tracking-widest mb-4">
+            <p
+              className="font-medium uppercase text-[#999999] mb-3"
+              style={{ fontSize: "11px", letterSpacing: "0.14em" }}
+            >
               February 2026
             </p>
-          <h1 className="text-5xl sm:text-6xl font-extrabold tracking-tight text-slate-900 leading-[1.1]">
-            Crypto Revenue{" "}
-            <span className="bg-gradient-to-r from-blue-600 to-violet-600 bg-clip-text text-transparent">
-              Analysis
-            </span>
-          </h1>
-          <p className="mt-6 text-xl text-slate-500 leading-relaxed max-w-2xl">
-            Revenue is at historic highs while sentiment is at historic lows.{" "}
-            <span className="text-slate-700 font-medium">Here&apos;s the data.</span>
-          </p>
-          <div className="mt-6 flex items-center gap-3">
-            <div className="h-px flex-1 max-w-[60px] bg-slate-200" />
-            <p className="text-sm text-slate-400">
-              By <span className="font-medium text-slate-500">Saurabh &amp; Team</span>
+            <h1
+              className="font-serif font-bold text-[#111111]"
+              style={{ fontSize: "42px", lineHeight: "1.1", letterSpacing: "-0.01em" }}
+            >
+              Crypto Revenue Analysis
+            </h1>
+            <p className="mt-4 text-[#666666] max-w-2xl" style={{ fontSize: "16px", lineHeight: "1.55" }}>
+              Revenue is at historic highs while sentiment is at historic lows.{" "}
+              <span className="text-[#111111] font-medium">Here&apos;s the data.</span>
+            </p>
+            <p className="mt-4 text-[#999999]" style={{ fontSize: "13px" }}>
+              By <span className="text-[#333333] font-medium">Saurabh &amp; Team</span>
             </p>
           </div>
-          </div>
-          {/* Data status indicator — top-right of header */}
+          {/* Data status indicator -- top-right of header */}
           <div className="flex-shrink-0 pt-1">
             <DataStatus isLive={isLive} isLoading={isLoading} lastUpdated={lastUpdated} />
           </div>
         </div>
+        <hr className="wsj-rule-heavy mt-6" />
       </header>
 
       {/* ===== STICKY NAVIGATION ===== */}
-      <nav className="sticky top-0 z-50 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 bg-white/80 backdrop-blur-xl border-b border-slate-200/60">
-        <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
+      <nav className="sticky top-0 z-50 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-0 bg-white border-b border-[#d4d4d4]">
+        <div className="flex items-center gap-0 overflow-x-auto scrollbar-hide">
           {NAV_ITEMS.map(({ id, label }) => (
             <button
               key={id}
               onClick={() => scrollToSection(id)}
-              className={`whitespace-nowrap px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
-                activeSection === id
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"
-              }`}
+              className="whitespace-nowrap px-4 py-3 transition-colors duration-150"
+              style={{
+                fontSize: "12px",
+                fontWeight: 500,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase" as const,
+                color: activeSection === id ? "#111111" : "#999999",
+                borderBottom: activeSection === id ? "2px solid #111111" : "2px solid transparent",
+                borderRadius: 0,
+                background: "transparent",
+              }}
             >
               {label}
             </button>
@@ -208,30 +218,51 @@ export default function HomePage() {
             <Section5NextLeaders />
           </ErrorBoundary>
         </div>
+
+        <div
+          id="protocols"
+          data-section-id="protocols"
+          ref={setSectionRef("protocols")}
+        >
+          <ErrorBoundary>
+            <Section6Protocols />
+          </ErrorBoundary>
+        </div>
       </main>
 
       {/* ===== FOOTER ===== */}
-      <footer className="border-t border-slate-200 py-12 mt-12">
-        <div className="max-w-3xl">
-          <p className="text-sm font-medium text-slate-900 mb-3">Data Sources</p>
-          <p className="text-sm text-slate-500 leading-relaxed">
-            DefiLlama (live) &middot; TokenTerminal (live) &middot;
-            CoinGecko (live) &middot; Alternative.me (live)
-          </p>
-          <div className="mt-6 flex items-center gap-4">
+      <footer className="mt-16 pb-12">
+        <hr className="wsj-rule-heavy mb-6" />
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-6">
+          <div>
+            <p
+              className="font-medium uppercase text-[#999999] mb-2"
+              style={{ fontSize: "11px", letterSpacing: "0.1em" }}
+            >
+              Data Sources
+            </p>
+            <p className="text-[13px] text-[#666666]" style={{ lineHeight: "1.6" }}>
+              DefiLlama (live) &middot; TokenTerminal (live) &middot;
+              CoinGecko (live) &middot; Alternative.me (live)
+            </p>
             <a
               href="https://github.com/1kx-network/revenue-report"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
+              className="inline-block mt-3 text-[13px] text-[#0274B6] hover:text-[#014d7a] font-medium transition-colors"
             >
               View References &rarr;
             </a>
           </div>
-          <div className="mt-8 pt-6 border-t border-slate-100">
-            <p className="text-xs text-slate-400">
-              &copy; 2026 Saurabh &amp; Team. Data as of February 2026. Revenue figures are
-              annualized estimates based on most recent available data.
+          <div className="text-right">
+            <p className="text-[11px] text-[#999999]" style={{ lineHeight: "1.6" }}>
+              &copy; 2026 Saurabh &amp; Team
+              <br />
+              Data as of February 2026
+              <br />
+              Revenue figures are annualized estimates
+              <br />
+              based on most recent available data.
             </p>
           </div>
         </div>

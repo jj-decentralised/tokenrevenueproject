@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
 
 // ============================================================
 // Types for live API responses
@@ -86,6 +86,33 @@ export interface LiveProtocolHistory {
   }[];
 }
 
+export interface LiveActivityData {
+  dailyActiveProtocols: number;
+  dexVolume24h: number;
+  dexVolume7d: number;
+  totalDataChart: Array<{ date: number; dexVolume: number; feeVolume: number }>;
+  topProtocolsByUsers: Array<{
+    name: string;
+    category: string;
+    volume24h: number;
+    change7d: number | null;
+  }>;
+  fetchedAt: string;
+}
+
+export interface LiveEarningsData {
+  source: "api" | "static";
+  protocols: Array<{
+    id: string;
+    name: string;
+    latestRevenue: number;
+    latestEarnings: number;
+    margin: number;
+    revenueHistory: Array<{ date: string; revenue: number; earnings: number; margin: number }>;
+  }>;
+  fetchedAt: string;
+}
+
 export interface LiveCoinGlassData {
   openInterest: {
     btc: Array<{ date: number; open: number; high: number; low: number; close: number }>;
@@ -132,6 +159,17 @@ export interface LiveCoinGeckoData {
   fetchedAt: string;
 }
 
+export interface DataDifferential {
+  protocolId: string;
+  protocolName: string;
+  defillamaRevenue24h: number | null;
+  defillamaRevenue30d: number | null;
+  tokenTerminalRevenue: number | null;
+  tokenTerminalFees: number | null;
+  differentialPct: number | null; // percentage difference between sources
+  source: "both" | "defillama_only" | "tokenterminal_only";
+}
+
 export interface LiveData {
   fees: LiveFeeOverview | null;
   sentiment: LiveSentiment | null;
@@ -139,8 +177,11 @@ export interface LiveData {
   tvl: LiveTVLData | null;
   etf: LiveETFData | null;
   protocolHistory: LiveProtocolHistory | null;
+  activity: LiveActivityData | null;
+  earnings: LiveEarningsData | null;
   coinGlass: LiveCoinGlassData | null;
   coinGecko: LiveCoinGeckoData | null;
+  differentials: DataDifferential[];
   isLoading: boolean;
   isLive: boolean;
   lastUpdated: Date | null;
@@ -155,8 +196,11 @@ const defaultLiveData: LiveData = {
   tvl: null,
   etf: null,
   protocolHistory: null,
+  activity: null,
+  earnings: null,
   coinGlass: null,
   coinGecko: null,
+  differentials: [],
   isLoading: true,
   isLive: false,
   lastUpdated: null,
@@ -420,6 +464,109 @@ async function fetchETF(): Promise<LiveETFData | null> {
 }
 
 /**
+ * Fetch on-chain user activity data and normalise into LiveActivityData.
+ *
+ * The /api/defillama/activity route returns DEX volume, fee-generating
+ * protocol counts, and merged daily chart data.
+ */
+async function fetchActivity(): Promise<LiveActivityData | null> {
+  try {
+    const res = await fetch("/api/defillama/activity");
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json.error) return null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = json as Record<string, any>;
+
+    const totalDataChart = Array.isArray(raw.totalDataChart)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? raw.totalDataChart.map((entry: any) => ({
+          date: Number(entry.date ?? 0),
+          dexVolume: Number(entry.dexVolume ?? 0),
+          feeVolume: Number(entry.feeVolume ?? 0),
+        }))
+      : [];
+
+    const topProtocolsByUsers = Array.isArray(raw.topProtocolsByUsers)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? raw.topProtocolsByUsers.map((p: any) => ({
+          name: String(p.name ?? ""),
+          category: String(p.category ?? "Other"),
+          volume24h: Number(p.volume24h ?? 0),
+          change7d: p.change7d != null ? Number(p.change7d) : null,
+        }))
+      : [];
+
+    return {
+      dailyActiveProtocols: Number(raw.dailyActiveProtocols ?? 0),
+      dexVolume24h: Number(raw.dexVolume24h ?? 0),
+      dexVolume7d: Number(raw.dexVolume7d ?? 0),
+      totalDataChart,
+      topProtocolsByUsers,
+      fetchedAt: String(raw.fetchedAt ?? new Date().toISOString()),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch protocol earnings/margin data and normalise into LiveEarningsData.
+ *
+ * The /api/tokenterminal/earnings route returns margin data for key
+ * protocols, or { source: "static", protocols: [] } when no API key
+ * is configured.
+ */
+async function fetchEarnings(): Promise<LiveEarningsData | null> {
+  try {
+    const res = await fetch("/api/tokenterminal/earnings");
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json.error) return null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = json as Record<string, any>;
+
+    const source = raw.source === "api" ? "api" as const : "static" as const;
+
+    // If static with no protocols, return null so the context treats it
+    // as unavailable (consistent with other fetchers)
+    if (source === "static" && (!Array.isArray(raw.protocols) || raw.protocols.length === 0)) {
+      return null;
+    }
+
+    const protocols = Array.isArray(raw.protocols)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? raw.protocols.map((p: any) => ({
+          id: String(p.id ?? ""),
+          name: String(p.name ?? ""),
+          latestRevenue: Number(p.latestRevenue ?? 0),
+          latestEarnings: Number(p.latestEarnings ?? 0),
+          margin: Number(p.margin ?? 0),
+          revenueHistory: Array.isArray(p.revenueHistory)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ? p.revenueHistory.map((h: any) => ({
+                date: String(h.date ?? ""),
+                revenue: Number(h.revenue ?? 0),
+                earnings: Number(h.earnings ?? 0),
+                margin: Number(h.margin ?? 0),
+              }))
+            : [],
+        }))
+      : [];
+
+    return {
+      source,
+      protocols,
+      fetchedAt: String(raw.fetchedAt ?? new Date().toISOString()),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fetch CoinGlass derivatives data and normalise into LiveCoinGlassData.
  *
  * The /api/coinglass route returns either
@@ -501,6 +648,99 @@ async function fetchCoinGecko(): Promise<LiveCoinGeckoData | null> {
   }
 }
 
+// ============================================================
+// Compute differentials between DefiLlama and TokenTerminal data
+// ============================================================
+function computeDifferentials(
+  fees: LiveFeeOverview | null,
+  tokenTerminal: LiveTokenTerminalData | null
+): DataDifferential[] {
+  const results: DataDifferential[] = [];
+
+  // Build a map of TokenTerminal protocols by lowercase project_id
+  const ttMap = new Map<string, { revenue: number | null; fees: number | null }>();
+  if (tokenTerminal?.protocols) {
+    for (const p of tokenTerminal.protocols) {
+      const key = p.project_id.toLowerCase();
+      let revenue: number | null = null;
+      let ttFees: number | null = null;
+      for (const m of p.metrics) {
+        if (m.metric_id === "revenue") revenue = m.value;
+        if (m.metric_id === "fees") ttFees = m.value;
+      }
+      ttMap.set(key, { revenue, fees: ttFees });
+    }
+  }
+
+  const matchedTT = new Set<string>();
+
+  // Walk DefiLlama protocols and try to match against TokenTerminal
+  if (fees?.protocols) {
+    for (const p of fees.protocols) {
+      const key = p.name.toLowerCase();
+      const ttEntry = ttMap.get(key);
+
+      if (ttEntry) {
+        matchedTT.add(key);
+        const defillamaAnnualised = p.total24h * 365;
+        const ttRevenue = ttEntry.revenue;
+        let differentialPct: number | null = null;
+        if (ttRevenue != null && ttRevenue !== 0) {
+          differentialPct = ((defillamaAnnualised - ttRevenue) / ttRevenue) * 100;
+        }
+        results.push({
+          protocolId: key,
+          protocolName: p.displayName || p.name,
+          defillamaRevenue24h: p.total24h,
+          defillamaRevenue30d: p.total30d,
+          tokenTerminalRevenue: ttEntry.revenue,
+          tokenTerminalFees: ttEntry.fees,
+          differentialPct,
+          source: "both",
+        });
+      } else {
+        results.push({
+          protocolId: key,
+          protocolName: p.displayName || p.name,
+          defillamaRevenue24h: p.total24h,
+          defillamaRevenue30d: p.total30d,
+          tokenTerminalRevenue: null,
+          tokenTerminalFees: null,
+          differentialPct: null,
+          source: "defillama_only",
+        });
+      }
+    }
+  }
+
+  // Add TokenTerminal-only protocols (not matched above)
+  if (tokenTerminal?.protocols) {
+    for (const p of tokenTerminal.protocols) {
+      const key = p.project_id.toLowerCase();
+      if (!matchedTT.has(key)) {
+        let revenue: number | null = null;
+        let ttFees: number | null = null;
+        for (const m of p.metrics) {
+          if (m.metric_id === "revenue") revenue = m.value;
+          if (m.metric_id === "fees") ttFees = m.value;
+        }
+        results.push({
+          protocolId: key,
+          protocolName: p.project_id,
+          defillamaRevenue24h: null,
+          defillamaRevenue30d: null,
+          tokenTerminalRevenue: revenue,
+          tokenTerminalFees: ttFees,
+          differentialPct: null,
+          source: "tokenterminal_only",
+        });
+      }
+    }
+  }
+
+  return results;
+}
+
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const [fees, setFees] = useState<LiveFeeOverview | null>(null);
   const [sentiment, setSentiment] = useState<LiveSentiment | null>(null);
@@ -508,6 +748,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [tvl, setTvl] = useState<LiveTVLData | null>(null);
   const [etf, setEtf] = useState<LiveETFData | null>(null);
   const [protocolHistory, setProtocolHistory] = useState<LiveProtocolHistory | null>(null);
+  const [activity, setActivity] = useState<LiveActivityData | null>(null);
+  const [earnings, setEarnings] = useState<LiveEarningsData | null>(null);
   const [coinGlass, setCoinGlass] = useState<LiveCoinGlassData | null>(null);
   const [coinGecko, setCoinGecko] = useState<LiveCoinGeckoData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -518,13 +760,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     const errs: string[] = [];
 
-    const [feesData, sentimentData, ttData, tvlData, etfData, protocolHistoryData, coinGlassData, coinGeckoData] = await Promise.allSettled([
+    const [feesData, sentimentData, ttData, tvlData, etfData, protocolHistoryData, activityData, earningsData, coinGlassData, coinGeckoData] = await Promise.allSettled([
       fetchFees(),
       fetchJSON<LiveSentiment>("/api/sentiment"),
       fetchJSON<LiveTokenTerminalData>("/api/tokenterminal"),
       fetchTVL(),
       fetchETF(),
       fetchProtocolHistory(),
+      fetchActivity(),
+      fetchEarnings(),
       fetchCoinGlass(),
       fetchCoinGecko(),
     ]);
@@ -565,6 +809,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       errs.push("Protocol history fetch failed");
     }
 
+    if (activityData.status === "fulfilled" && activityData.value) {
+      setActivity(activityData.value);
+    } else {
+      errs.push("On-chain activity fetch failed");
+    }
+
+    if (earningsData.status === "fulfilled" && earningsData.value) {
+      setEarnings(earningsData.value);
+    } else {
+      errs.push("Protocol earnings fetch failed");
+    }
+
     if (coinGlassData.status === "fulfilled" && coinGlassData.value) {
       setCoinGlass(coinGlassData.value);
     } else {
@@ -584,18 +840,90 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     fetchAll();
-    // Refresh every 30 minutes
-    const interval = setInterval(fetchAll, 30 * 60 * 1000);
+    // Refresh every 5 minutes for more real-time feel
+    const interval = setInterval(fetchAll, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchAll]);
 
-  const isLive = !!(fees || sentiment || tokenTerminal || tvl || etf || protocolHistory || coinGlass || coinGecko);
+  const isLive = !!(fees || sentiment || tokenTerminal || tvl || etf || protocolHistory || activity || earnings || coinGlass || coinGecko);
+
+  const differentials = useMemo(
+    () => computeDifferentials(fees, tokenTerminal),
+    [fees, tokenTerminal]
+  );
 
   return (
     <DataContext.Provider
-      value={{ fees, sentiment, tokenTerminal, tvl, etf, protocolHistory, coinGlass, coinGecko, isLoading, isLive, lastUpdated, errors, refetch: fetchAll }}
+      value={{ fees, sentiment, tokenTerminal, tvl, etf, protocolHistory, activity, earnings, coinGlass, coinGecko, differentials, isLoading, isLive, lastUpdated, errors, refetch: fetchAll }}
     >
       {children}
     </DataContext.Provider>
   );
+}
+
+// ============================================================
+// Protocol lookup hook — fast cross-source indexing
+// ============================================================
+export function useProtocolLookup() {
+  const ctx = useDataContext();
+  return useMemo(() => {
+    const map = new Map<string, {
+      defillama: LiveProtocolFee | null;
+      coinGecko: LiveCoinGeckoData['tokens'][number] | null;
+      tvl: LiveTVLData['topProtocols'][number] | null;
+      earnings: LiveEarningsData['protocols'][number] | null;
+      history: LiveProtocolHistory['protocols'][number] | null;
+    }>();
+
+    // Index DefiLlama protocols
+    if (ctx.fees?.protocols) {
+      for (const p of ctx.fees.protocols) {
+        const key = p.name.toLowerCase();
+        if (!map.has(key)) map.set(key, { defillama: null, coinGecko: null, tvl: null, earnings: null, history: null });
+        map.get(key)!.defillama = p;
+      }
+    }
+
+    // Index CoinGecko tokens
+    if (ctx.coinGecko?.tokens) {
+      for (const t of ctx.coinGecko.tokens) {
+        const key = t.name.toLowerCase();
+        if (map.has(key)) {
+          map.get(key)!.coinGecko = t;
+        } else {
+          // Try matching by id
+          const byId = [...map.keys()].find(k => k === t.id.toLowerCase());
+          if (byId) map.get(byId)!.coinGecko = t;
+        }
+      }
+    }
+
+    // Index TVL
+    if (ctx.tvl?.topProtocols) {
+      for (const p of ctx.tvl.topProtocols) {
+        const key = p.name.toLowerCase();
+        if (map.has(key)) map.get(key)!.tvl = p;
+      }
+    }
+
+    // Index earnings
+    if (ctx.earnings?.protocols) {
+      for (const p of ctx.earnings.protocols) {
+        const keys = [p.name.toLowerCase(), p.id.toLowerCase()];
+        for (const key of keys) {
+          if (map.has(key)) { map.get(key)!.earnings = p; break; }
+        }
+      }
+    }
+
+    // Index history
+    if (ctx.protocolHistory?.protocols) {
+      for (const p of ctx.protocolHistory.protocols) {
+        const key = p.name.toLowerCase();
+        if (map.has(key)) map.get(key)!.history = p;
+      }
+    }
+
+    return map;
+  }, [ctx]);
 }

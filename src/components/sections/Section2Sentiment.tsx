@@ -625,6 +625,128 @@ export default function Section2Sentiment() {
         />
       </div>
 
+      {/* ---- CoinGecko Market Dominance Context ---- */}
+      {ctx.coinGecko?.global && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+          <StatCard
+            label="BTC Dominance"
+            value={`${ctx.coinGecko.global.btcDominance.toFixed(1)}%`}
+            subvalue="Share of total crypto market cap"
+            change={ctx.coinGecko.global.btcDominance >= 55 ? "Elevated -- risk-off signal" : "Normal range"}
+            changeType={ctx.coinGecko.global.btcDominance >= 55 ? "negative" : "neutral"}
+          />
+          <StatCard
+            label="ETH Dominance"
+            value={`${ctx.coinGecko.global.ethDominance.toFixed(1)}%`}
+            subvalue="Share of total crypto market cap"
+            change={ctx.coinGecko.global.ethDominance < 15 ? "Below historic avg" : "Normal range"}
+            changeType={ctx.coinGecko.global.ethDominance < 15 ? "negative" : "neutral"}
+          />
+          <StatCard
+            label="Total Market Cap"
+            value={`$${(ctx.coinGecko.global.totalMarketCap / 1e12).toFixed(2)}T`}
+            subvalue="All cryptocurrencies"
+            change={`${ctx.coinGecko.global.marketCapChange24h >= 0 ? "+" : ""}${ctx.coinGecko.global.marketCapChange24h.toFixed(1)}% 24h`}
+            changeType={ctx.coinGecko.global.marketCapChange24h >= 0 ? "positive" : "negative"}
+          />
+          <StatCard
+            label="24h Spot Volume"
+            value={`$${(ctx.coinGecko.global.totalVolume24h / 1e9).toFixed(1)}B`}
+            subvalue="Global spot trading"
+          />
+        </div>
+      )}
+
+      {/* ---- CoinGlass Derivatives Market ---- */}
+      {ctx.coinGlass && (
+        <Card className="mb-10">
+          <div className="mb-6">
+            <div className="flex items-center gap-3">
+              <h3 className="text-xl font-bold text-slate-900">
+                Derivatives Market Snapshot
+              </h3>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-full border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live CoinGlass
+              </span>
+            </div>
+            <p className="text-sm text-slate-500 mt-1 max-w-2xl">
+              Derivatives data adds depth to sentiment analysis -- open interest, funding rates, and liquidations reveal
+              how leveraged and positioned the market is beyond spot price action.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <StatCard
+              label="BTC Open Interest"
+              value={`$${(ctx.coinGlass.openInterest.btcCurrent / 1e9).toFixed(1)}B`}
+              subvalue="Total BTC futures OI"
+              change={ctx.coinGlass.openInterest.btcCurrent > 30e9 ? "Elevated leverage" : "Normal range"}
+              changeType={ctx.coinGlass.openInterest.btcCurrent > 30e9 ? "negative" : "neutral"}
+            />
+            <StatCard
+              label="Funding Rate (BTC)"
+              value={`${(ctx.coinGlass.fundingRate.currentRate * 100).toFixed(4)}%`}
+              subvalue="Current 8h funding"
+              change={
+                ctx.coinGlass.fundingRate.currentRate > 0.01
+                  ? "Longs paying -- bullish bias"
+                  : ctx.coinGlass.fundingRate.currentRate < -0.01
+                  ? "Shorts paying -- bearish bias"
+                  : "Near neutral"
+              }
+              changeType={
+                ctx.coinGlass.fundingRate.currentRate > 0.01
+                  ? "positive"
+                  : ctx.coinGlass.fundingRate.currentRate < -0.01
+                  ? "negative"
+                  : "neutral"
+              }
+            />
+            <StatCard
+              label="Long/Short Ratio"
+              value={ctx.coinGlass.longShortRatio.currentRatio.toFixed(2)}
+              subvalue="Global L/S accounts ratio"
+              change={
+                ctx.coinGlass.longShortRatio.currentRatio > 1.5
+                  ? "Crowded long"
+                  : ctx.coinGlass.longShortRatio.currentRatio < 0.8
+                  ? "Crowded short"
+                  : "Balanced positioning"
+              }
+              changeType={
+                ctx.coinGlass.longShortRatio.currentRatio > 1.5 || ctx.coinGlass.longShortRatio.currentRatio < 0.8
+                  ? "negative"
+                  : "neutral"
+              }
+            />
+            <StatCard
+              label="24h Liquidations"
+              value={`$${(ctx.coinGlass.liquidations.total24h / 1e6).toFixed(0)}M`}
+              subvalue="Total liquidated positions"
+              change={ctx.coinGlass.liquidations.total24h > 500e6 ? "High volatility event" : "Normal range"}
+              changeType={ctx.coinGlass.liquidations.total24h > 500e6 ? "negative" : "neutral"}
+            />
+          </div>
+
+          {/* Derivatives context insight */}
+          <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 mt-0.5 w-3 h-3 rounded-full bg-blue-500" />
+              <div className="text-sm text-slate-700">
+                <span className="font-semibold">Why derivatives matter for sentiment:</span>{" "}
+                Open interest and funding rates reveal market positioning that spot prices alone cannot show.
+                High OI with negative funding suggests shorts are dominant -- a contrarian bullish signal
+                when combined with strong revenue fundamentals. Liquidation spikes often mark local extremes
+                in sentiment.
+              </div>
+            </div>
+          </div>
+
+          <DataSource sources={["CoinGlass (live)"]} />
+        </Card>
+      )}
+
       {/* ---- THE MONEY CHART: Dual-Axis Divergence ---- */}
       <Card className="mb-10">
         <div className="mb-6">

@@ -6,18 +6,21 @@
 
 :root {
   --bg-primary: #ffffff;
-  --bg-secondary: #f8fafc;
+  --bg-secondary: #ffffff;
   --bg-card: #ffffff;
-  --border: #e2e8f0;
-  --border-light: #f1f5f9;
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
-  --accent: #3b82f6;
-  --accent-light: #dbeafe;
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
+  --border: #d4d4d4;
+  --border-light: #e8e8e8;
+  --text-primary: #111111;
+  --text-secondary: #333333;
+  --text-muted: #999999;
+  --accent: #0274B6;
+  --accent-light: #e8f4fa;
+  --success: #2e7d32;
+  --warning: #c67100;
+  --danger: #9e2b25;
+  --rule: #d4d4d4;
+  --font-serif: Georgia, Cambria, 'Times New Roman', Times, serif;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 * {
@@ -27,93 +30,168 @@
 }
 
 body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  background: var(--bg-secondary);
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 @layer components {
   .card {
-    @apply bg-white rounded-2xl border border-slate-100 p-6 shadow-sm;
+    @apply bg-white border border-[#d4d4d4] p-5;
+    border-radius: 0;
+    box-shadow: none;
   }
 
   .card-hover {
-    @apply card transition-shadow hover:shadow-md;
+    @apply card transition-colors;
+  }
+
+  .card-hover:hover {
+    border-color: #999999;
   }
 
   .stat-value {
-    @apply text-3xl font-bold tracking-tight text-slate-900;
+    font-family: var(--font-serif);
+    @apply text-2xl font-bold tracking-tight text-[#111111];
+    line-height: 1.2;
   }
 
   .stat-label {
-    @apply text-sm font-medium text-slate-500 uppercase tracking-wider;
+    @apply text-xs font-medium uppercase;
+    letter-spacing: 0.1em;
+    color: #999999;
+    font-size: 11px;
   }
 
   .section-title {
-    @apply text-2xl font-bold text-slate-900 tracking-tight;
+    font-family: var(--font-serif);
+    @apply text-2xl font-bold text-[#111111];
+    line-height: 1.2;
   }
 
   .section-subtitle {
-    @apply text-base text-slate-500 mt-1 max-w-2xl;
+    @apply text-sm mt-1 max-w-2xl;
+    color: #666666;
+    line-height: 1.5;
   }
 
   .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+    @apply inline-flex items-center px-2 py-0.5 text-xs font-medium;
+    border-radius: 2px;
   }
 
   .badge-green {
-    @apply badge bg-emerald-50 text-emerald-700 border border-emerald-200;
+    @apply badge;
+    background: #eef7ee;
+    color: #2e7d32;
+    border: 1px solid #c8e6c9;
   }
 
   .badge-red {
-    @apply badge bg-red-50 text-red-700 border border-red-200;
+    @apply badge;
+    background: #fdf0ef;
+    color: #9e2b25;
+    border: 1px solid #f5cbc7;
   }
 
   .badge-blue {
-    @apply badge bg-blue-50 text-blue-700 border border-blue-200;
+    @apply badge;
+    background: #e8f4fa;
+    color: #0274B6;
+    border: 1px solid #b3daf0;
   }
 
   .badge-amber {
-    @apply badge bg-amber-50 text-amber-700 border border-amber-200;
+    @apply badge;
+    background: #fef8ee;
+    color: #c67100;
+    border: 1px solid #ffe0b2;
   }
 
   .data-source {
-    @apply text-xs text-slate-400 mt-4 pt-3 border-t border-slate-100;
+    @apply text-xs mt-4 pt-3;
+    color: #999999;
+    border-top: 1px solid #e8e8e8;
   }
 
   .nav-item {
-    @apply px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-900 rounded-lg transition-colors cursor-pointer;
+    @apply px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer;
+    color: #666666;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-radius: 0;
+  }
+
+  .nav-item:hover {
+    color: #111111;
   }
 
   .nav-item-active {
-    @apply nav-item bg-white text-slate-900 shadow-sm border border-slate-200;
+    @apply nav-item;
+    color: #111111;
+    border-bottom: 2px solid #111111;
   }
 }
 
-/* Recharts customizations for white aesthetic */
+/* Recharts customizations for WSJ aesthetic */
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line {
-  stroke: #f1f5f9;
+  stroke: #e8e8e8;
 }
 
 .recharts-text {
-  fill: #64748b;
-  font-size: 12px;
+  fill: #666666;
+  font-size: 11px;
+  font-family: 'Inter', system-ui, sans-serif;
 }
 
 .recharts-tooltip-wrapper .recharts-default-tooltip {
-  background: white !important;
-  border: 1px solid #e2e8f0 !important;
-  border-radius: 12px !important;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05) !important;
-  padding: 12px 16px !important;
+  background: #ffffff !important;
+  border: 1px solid #d4d4d4 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
 }
 
-/* Scrollbar styling */
+.recharts-tooltip-wrapper .recharts-default-tooltip .recharts-tooltip-label {
+  font-family: var(--font-serif) !important;
+  font-weight: 700 !important;
+  color: #111111 !important;
+  font-size: 13px !important;
+  margin-bottom: 4px !important;
+}
+
+/* Financial table styling */
+.financial-table th {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #666666;
+  border-bottom: 2px solid #111111;
+  padding: 6px 8px;
+}
+
+.financial-table td {
+  font-size: 13px;
+  padding: 5px 8px;
+  border-bottom: 1px solid #e8e8e8;
+  color: #333333;
+}
+
+.financial-table tr:nth-child(even) td {
+  background: #fafafa;
+}
+
+/* Scrollbar styling — tighter, minimal */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -121,10 +199,23 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
+  background: #d4d4d4;
+  border-radius: 0;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #999999;
+}
+
+/* Thin horizontal rule utility */
+.wsj-rule {
+  border: none;
+  border-top: 1px solid #d4d4d4;
+  margin: 0;
+}
+
+.wsj-rule-heavy {
+  border: none;
+  border-top: 2px solid #111111;
+  margin: 0;
 }

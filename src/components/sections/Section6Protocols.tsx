@@ -1,0 +1,1061 @@
+"use client";
+
+import React, { useMemo, useState } from "react";
+import {
+  ScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  ZAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+  Legend,
+} from "recharts";
+import { useDataContext, LiveProtocolFee } from "@/lib/DataContext";
+import { ChartExport } from "@/components/ui/ChartExport";
+import {
+  Card,
+  SectionHeader,
+  DataSource,
+} from "@/components/ui/Card";
+
+// ---------------------------------------------------------------------------
+// Category color map (WSJ-style)
+// ---------------------------------------------------------------------------
+
+const CATEGORY_COLORS: Record<string, string> = {
+  DeFi: "#3b82f6",
+  Dexes: "#3b82f6",
+  Lending: "#3b82f6",
+  Yield: "#3b82f6",
+  "Yield Aggregator": "#3b82f6",
+  "Liquid Staking": "#3b82f6",
+  Derivatives: "#3b82f6",
+  Stablecoins: "#10b981",
+  Exchanges: "#8b5cf6",
+  CEX: "#8b5cf6",
+  Blockchains: "#f59e0b",
+  Chain: "#f59e0b",
+  "EVM Compatible": "#f59e0b",
+  Consumer: "#ef4444",
+};
+
+const CATEGORY_GROUP: Record<string, string> = {
+  DeFi: "DeFi",
+  Dexes: "DeFi",
+  Lending: "DeFi",
+  Yield: "DeFi",
+  "Yield Aggregator": "DeFi",
+  "Liquid Staking": "DeFi",
+  Derivatives: "DeFi",
+  DEX: "DeFi",
+  Bridge: "DeFi",
+  CDP: "DeFi",
+  Options: "DeFi",
+  Stablecoins: "Stablecoins",
+  Exchanges: "Exchanges",
+  CEX: "Exchanges",
+  Blockchains: "Blockchains",
+  Chain: "Blockchains",
+  "EVM Compatible": "Blockchains",
+  Consumer: "Consumer",
+  NFT: "Consumer",
+  Gaming: "Consumer",
+  Social: "Consumer",
+};
+
+function getCategoryGroup(category: string): string {
+  return CATEGORY_GROUP[category] || "Other";
+}
+
+function getCategoryColor(category: string): string {
+  const group = getCategoryGroup(category);
+  const colorMap: Record<string, string> = {
+    DeFi: "#3b82f6",
+    Stablecoins: "#10b981",
+    Exchanges: "#8b5cf6",
+    Blockchains: "#f59e0b",
+    Consumer: "#ef4444",
+    Other: "#94a3b8",
+  };
+  return CATEGORY_COLORS[category] || colorMap[group] || "#94a3b8";
+}
+
+// ---------------------------------------------------------------------------
+// Formatting helpers
+// ---------------------------------------------------------------------------
+
+function formatCompact(value: number | null | undefined): string {
+  if (value == null || !isFinite(value)) return "\u2014";
+  const abs = Math.abs(value);
+  if (abs >= 1e12) return `$${(value / 1e12).toFixed(1)}T`;
+  if (abs >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
+  return `$${value.toFixed(0)}`;
+}
+
+function formatRatio(value: number | null | undefined): string {
+  if (value == null || !isFinite(value)) return "\u2014";
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
+  return `${value.toFixed(1)}x`;
+}
+
+function formatPct(value: number | null | undefined): string {
+  if (value == null || !isFinite(value)) return "\u2014";
+  const sign = value >= 0 ? "+" : "";
+  return `${sign}${value.toFixed(1)}%`;
+}
+
+function formatMargin(value: number | null | undefined): string {
+  if (value == null || !isFinite(value)) return "\u2014";
+  return `${(value * 100).toFixed(0)}%`;
+}
+
+function toSlug(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+}
+
+// ---------------------------------------------------------------------------
+// Types for merged protocol data
+// ---------------------------------------------------------------------------
+
+interface MergedProtocol {
+  rank: number;
+  name: string;
+  displayName: string;
+  category: string;
+  categoryGroup: string;
+  slug: string;
+  revenue24h: number;
+  revenue30d: number | null;
+  revenueAnn: number;
+  marketCap: number | null;
+  psRatio: number | null;
+  tvl: number | null;
+  revenueTvl: number | null;
+  margin: number | null;
+  change1d: number | null;
+  change7d: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Filter categories
+// ---------------------------------------------------------------------------
+
+const FILTER_CATEGORIES = ["All", "DeFi", "Exchanges", "Stablecoins", "Blockchains", "Consumer"] as const;
+type FilterCategory = (typeof FILTER_CATEGORIES)[number];
+
+// ---------------------------------------------------------------------------
+// Custom Tooltip Styles (WSJ -- no border-radius)
+// ---------------------------------------------------------------------------
+
+const tooltipStyle: React.CSSProperties = {
+  backgroundColor: "#ffffff",
+  border: "1px solid #d4d4d4",
+  borderRadius: 0,
+  padding: "10px 14px",
+  fontSize: "13px",
+  color: "#333333",
+  boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+};
+
+// ---------------------------------------------------------------------------
+// Custom Tooltips
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ScatterTooltipRevMcap({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0]?.payload;
+  if (!d) return null;
+  return (
+    <div style={tooltipStyle}>
+      <p style={{ fontWeight: 700, color: "#111111", marginBottom: 4 }}>{d.name}</p>
+      <p>Revenue (Ann.): {formatCompact(d.revenueAnn)}</p>
+      <p>Market Cap: {formatCompact(d.marketCap)}</p>
+      <p>P/S Ratio: {formatRatio(d.psRatio)}</p>
+      {d.tvl != null && <p>TVL: {formatCompact(d.tvl)}</p>}
+    </div>
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ScatterTooltipRevTvl({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0]?.payload;
+  if (!d) return null;
+  return (
+    <div style={tooltipStyle}>
+      <p style={{ fontWeight: 700, color: "#111111", marginBottom: 4 }}>{d.name}</p>
+      <p>TVL: {formatCompact(d.tvl)}</p>
+      <p>Revenue (Ann.): {formatCompact(d.revenueAnn)}</p>
+      <p>Revenue/TVL: {d.revenueTvl != null ? `${(d.revenueTvl * 100).toFixed(2)}%` : "\u2014"}</p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Log scale tick formatter
+// ---------------------------------------------------------------------------
+
+function logTickFormatter(value: number): string {
+  if (value >= 1e12) return `$${(value / 1e12).toFixed(0)}T`;
+  if (value >= 1e9) return `$${(value / 1e9).toFixed(0)}B`;
+  if (value >= 1e6) return `$${(value / 1e6).toFixed(0)}M`;
+  if (value >= 1e3) return `$${(value / 1e3).toFixed(0)}K`;
+  return `$${value.toFixed(0)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Heatmap cell color
+// ---------------------------------------------------------------------------
+
+function getHeatmapColor(change: number | null): string {
+  if (change == null) return "#e8e8e8";
+  if (change >= 50) return "#166534";
+  if (change >= 20) return "#15803d";
+  if (change >= 10) return "#22c55e";
+  if (change >= 5) return "#4ade80";
+  if (change >= 0) return "#bbf7d0";
+  if (change >= -5) return "#fecaca";
+  if (change >= -10) return "#f87171";
+  if (change >= -20) return "#dc2626";
+  return "#991b1b";
+}
+
+function getHeatmapTextColor(change: number | null): string {
+  if (change == null) return "#999999";
+  if (change >= 20 || change <= -20) return "#ffffff";
+  return "#111111";
+}
+
+function abbreviate(name: string, maxLen: number = 6): string {
+  if (name.length <= maxLen) return name;
+  // Try taking first letters of words
+  const words = name.split(/[\s-]+/);
+  if (words.length > 1) {
+    return words.map((w) => w[0]).join("").toUpperCase().slice(0, maxLen);
+  }
+  return name.slice(0, maxLen);
+}
+
+// ---------------------------------------------------------------------------
+// Loading skeleton
+// ---------------------------------------------------------------------------
+
+function TableSkeleton() {
+  return (
+    <div className="w-full space-y-2 py-8">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="flex gap-4 animate-pulse">
+          <div className="h-4 bg-slate-200 w-8" />
+          <div className="h-4 bg-slate-200 flex-1" />
+          <div className="h-4 bg-slate-200 w-20" />
+          <div className="h-4 bg-slate-200 w-20" />
+          <div className="h-4 bg-slate-200 w-20" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ChartSkeleton({ height = "h-[400px]" }: { height?: string }) {
+  return (
+    <div className={`${height} w-full flex items-center justify-center`}>
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+        <span className="text-sm text-slate-400">Loading live data...</span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Scatter legend component
+// ---------------------------------------------------------------------------
+
+function CategoryLegend() {
+  const items = [
+    { label: "DeFi", color: "#3b82f6" },
+    { label: "Stablecoins", color: "#10b981" },
+    { label: "Exchanges", color: "#8b5cf6" },
+    { label: "Blockchains", color: "#f59e0b" },
+    { label: "Other", color: "#94a3b8" },
+  ];
+  return (
+    <div className="flex flex-wrap gap-4 mt-3 text-xs" style={{ color: "#666666" }}>
+      {items.map((item) => (
+        <span key={item.label} className="flex items-center gap-1.5">
+          <span
+            className="w-2.5 h-2.5"
+            style={{ backgroundColor: item.color, borderRadius: 0 }}
+          />
+          {item.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main Component
+// ---------------------------------------------------------------------------
+
+export default function Section6Protocols() {
+  const { fees, coinGecko, tvl, earnings, isLoading } = useDataContext();
+  const [activeFilter, setActiveFilter] = useState<FilterCategory>("All");
+
+  // -----------------------------------------------------------------------
+  // Merge data from all sources
+  // -----------------------------------------------------------------------
+  const mergedProtocols: MergedProtocol[] = useMemo(() => {
+    if (!fees?.protocols) return [];
+
+    const protocols = fees.protocols;
+    const tokens = coinGecko?.tokens ?? [];
+    const tvlProtocols = tvl?.topProtocols ?? [];
+    const earningsProtocols = earnings?.protocols ?? [];
+
+    // Sort by total24h descending, take top 50
+    const sorted = [...protocols]
+      .filter((p) => p.total24h > 0)
+      .sort((a, b) => b.total24h - a.total24h)
+      .slice(0, 50);
+
+    return sorted.map((p: LiveProtocolFee, idx: number) => {
+      const nameLower = p.name.toLowerCase();
+      const displayLower = p.displayName.toLowerCase();
+
+      // Match CoinGecko token
+      const tokenMatch = tokens.find(
+        (t) =>
+          t.name.toLowerCase() === nameLower ||
+          t.id.toLowerCase() === nameLower ||
+          t.name.toLowerCase() === displayLower ||
+          t.id.toLowerCase() === displayLower
+      );
+
+      // Match TVL
+      const tvlMatch = tvlProtocols.find(
+        (t) => t.name.toLowerCase() === nameLower || t.name.toLowerCase() === displayLower
+      );
+
+      // Match earnings
+      const earningsMatch = earningsProtocols.find(
+        (e) =>
+          e.name.toLowerCase() === nameLower ||
+          e.id.toLowerCase() === nameLower ||
+          e.name.toLowerCase() === displayLower
+      );
+
+      const revenueAnn = p.total24h * 365;
+      const marketCap = tokenMatch?.marketCap ?? null;
+      const tvlVal = tvlMatch?.tvl ?? null;
+      const psRatio =
+        marketCap != null && revenueAnn > 0 ? marketCap / revenueAnn : null;
+      const revenueTvl =
+        tvlVal != null && tvlVal > 0 ? revenueAnn / tvlVal : null;
+      const margin = earningsMatch?.margin ?? null;
+
+      return {
+        rank: idx + 1,
+        name: p.name,
+        displayName: p.displayName || p.name,
+        category: p.category || "Other",
+        categoryGroup: getCategoryGroup(p.category || "Other"),
+        slug: toSlug(p.name),
+        revenue24h: p.total24h,
+        revenue30d: p.total30d || null,
+        revenueAnn,
+        marketCap,
+        psRatio,
+        tvl: tvlVal,
+        revenueTvl,
+        margin,
+        change1d: p.change_1d,
+        change7d: p.change_7d,
+      };
+    });
+  }, [fees, coinGecko, tvl, earnings]);
+
+  // -----------------------------------------------------------------------
+  // Filtered protocols
+  // -----------------------------------------------------------------------
+  const filteredProtocols = useMemo(() => {
+    if (activeFilter === "All") return mergedProtocols;
+    return mergedProtocols.filter((p) => p.categoryGroup === activeFilter);
+  }, [mergedProtocols, activeFilter]);
+
+  // -----------------------------------------------------------------------
+  // Scatter data: Revenue vs Market Cap
+  // -----------------------------------------------------------------------
+  const scatterRevMcap = useMemo(() => {
+    return mergedProtocols
+      .filter((p) => p.marketCap != null && p.marketCap > 0 && p.revenueAnn > 0)
+      .map((p) => ({
+        name: p.displayName,
+        revenueAnn: p.revenueAnn,
+        marketCap: p.marketCap!,
+        psRatio: p.psRatio,
+        tvl: p.tvl,
+        category: p.categoryGroup,
+        color: getCategoryColor(p.category),
+        z: p.tvl != null ? Math.max(p.tvl / 1e8, 40) : 40,
+      }));
+  }, [mergedProtocols]);
+
+  // Group scatter data by category for colored Scatter elements
+  const scatterRevMcapByCategory = useMemo(() => {
+    const groups: Record<string, typeof scatterRevMcap> = {};
+    for (const d of scatterRevMcap) {
+      const cat = d.category;
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(d);
+    }
+    return groups;
+  }, [scatterRevMcap]);
+
+  // -----------------------------------------------------------------------
+  // Scatter data: Revenue vs TVL
+  // -----------------------------------------------------------------------
+  const scatterRevTvl = useMemo(() => {
+    return mergedProtocols
+      .filter((p) => p.tvl != null && p.tvl > 0 && p.revenueAnn > 0)
+      .map((p) => ({
+        name: p.displayName,
+        tvl: p.tvl!,
+        revenueAnn: p.revenueAnn,
+        revenueTvl: p.revenueTvl,
+        category: p.categoryGroup,
+        color: getCategoryColor(p.category),
+        z: 60,
+      }));
+  }, [mergedProtocols]);
+
+  const scatterRevTvlByCategory = useMemo(() => {
+    const groups: Record<string, typeof scatterRevTvl> = {};
+    for (const d of scatterRevTvl) {
+      const cat = d.category;
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(d);
+    }
+    return groups;
+  }, [scatterRevTvl]);
+
+  // Average revenue/TVL ratio for reference line
+  const avgRevenueTvl = useMemo(() => {
+    const valid = mergedProtocols.filter(
+      (p) => p.revenueTvl != null && isFinite(p.revenueTvl!)
+    );
+    if (valid.length === 0) return 0.1;
+    const sum = valid.reduce((s, p) => s + p.revenueTvl!, 0);
+    return sum / valid.length;
+  }, [mergedProtocols]);
+
+  // -----------------------------------------------------------------------
+  // Heatmap data: 30d change
+  // -----------------------------------------------------------------------
+  const heatmapData = useMemo(() => {
+    return mergedProtocols
+      .filter((p) => p.change7d != null)
+      .sort((a, b) => Math.abs(b.change7d ?? 0) - Math.abs(a.change7d ?? 0))
+      .slice(0, 40);
+  }, [mergedProtocols]);
+
+  // CSV export data for table
+  const tableExportData = useMemo(() => {
+    return filteredProtocols.map((p) => ({
+      rank: p.rank,
+      protocol: p.displayName,
+      category: p.categoryGroup,
+      "revenue_24h": p.revenue24h,
+      "revenue_30d": p.revenue30d ?? "",
+      "revenue_ann": p.revenueAnn,
+      "market_cap": p.marketCap ?? "",
+      "ps_ratio": p.psRatio ?? "",
+      tvl: p.tvl ?? "",
+      "revenue_tvl": p.revenueTvl ?? "",
+      margin: p.margin ?? "",
+      "change_1d": p.change1d ?? "",
+      "change_7d": p.change7d ?? "",
+    }));
+  }, [filteredProtocols]);
+
+  // P/S = 20x reference line data
+  const ps20xLineData = useMemo(() => {
+    // Generate points from 1M to 10B revenue
+    const points = [];
+    for (let rev = 1e6; rev <= 1e10; rev *= 10) {
+      points.push({ x: rev, y: rev * 20 });
+    }
+    return points;
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // Scatter chart color map
+  // -----------------------------------------------------------------------
+  const categoryColorMap: Record<string, string> = {
+    DeFi: "#3b82f6",
+    Stablecoins: "#10b981",
+    Exchanges: "#8b5cf6",
+    Blockchains: "#f59e0b",
+    Consumer: "#ef4444",
+    Other: "#94a3b8",
+  };
+
+  // -----------------------------------------------------------------------
+  // Render
+  // -----------------------------------------------------------------------
+
+  return (
+    <section className="space-y-12">
+      <SectionHeader
+        number="6"
+        title="Protocol Explorer"
+        subtitle="A comprehensive view of protocol-level economics. Compare revenue, valuations, capital efficiency, and momentum across the top 50 fee-generating protocols."
+      />
+
+      {/* ================================================================ */}
+      {/* A. Protocol Comparison Table                                     */}
+      {/* ================================================================ */}
+      <Card>
+        <ChartExport
+          data={tableExportData}
+          filename="protocol-comparison-table"
+          title="Protocol Comparison Table"
+        >
+          <p
+            className="mb-4"
+            style={{ fontSize: "14px", color: "#666666", lineHeight: "1.5" }}
+          >
+            Top 50 protocols ranked by 24h revenue, merged with market cap, TVL, and earnings data.
+          </p>
+
+          {/* Category filter row */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            {FILTER_CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setActiveFilter(cat)}
+                className="px-3 py-1.5 transition-colors duration-150"
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase" as const,
+                  border: "1px solid",
+                  borderColor: activeFilter === cat ? "#111111" : "#d4d4d4",
+                  backgroundColor: activeFilter === cat ? "#111111" : "#ffffff",
+                  color: activeFilter === cat ? "#ffffff" : "#666666",
+                  borderRadius: 0,
+                  cursor: "pointer",
+                }}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          {isLoading ? (
+            <TableSkeleton />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="financial-table w-full" style={{ borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left", width: 36 }}>#</th>
+                    <th style={{ textAlign: "left", minWidth: 140 }}>Protocol</th>
+                    <th style={{ textAlign: "left", minWidth: 90 }}>Category</th>
+                    <th style={{ textAlign: "right", minWidth: 90 }}>Revenue (24h)</th>
+                    <th style={{ textAlign: "right", minWidth: 90 }}>Revenue (30d)</th>
+                    <th style={{ textAlign: "right", minWidth: 100 }}>Revenue (Ann.)</th>
+                    <th style={{ textAlign: "right", minWidth: 100 }}>Market Cap</th>
+                    <th style={{ textAlign: "right", minWidth: 70 }}>P/S</th>
+                    <th style={{ textAlign: "right", minWidth: 90 }}>TVL</th>
+                    <th style={{ textAlign: "right", minWidth: 90 }}>Rev/TVL</th>
+                    <th style={{ textAlign: "right", minWidth: 60 }}>Margin</th>
+                    <th style={{ textAlign: "right", minWidth: 70 }}>24h</th>
+                    <th style={{ textAlign: "right", minWidth: 70 }}>7d</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredProtocols.map((p) => (
+                    <tr key={p.name}>
+                      <td style={{ textAlign: "left", color: "#999999" }}>{p.rank}</td>
+                      <td style={{ textAlign: "left" }}>
+                        <a
+                          href={`/protocol/${p.slug}`}
+                          style={{
+                            color: "#111111",
+                            fontWeight: 600,
+                            textDecoration: "none",
+                          }}
+                          onMouseOver={(e) =>
+                            (e.currentTarget.style.color = "#0274B6")
+                          }
+                          onMouseOut={(e) =>
+                            (e.currentTarget.style.color = "#111111")
+                          }
+                        >
+                          {p.displayName}
+                        </a>
+                        <div
+                          style={{
+                            fontSize: "10px",
+                            color: "#999999",
+                            marginTop: 1,
+                          }}
+                        >
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "1px 5px",
+                              border: "1px solid #e8e8e8",
+                              fontSize: "9px",
+                              letterSpacing: "0.04em",
+                              textTransform: "uppercase",
+                              color: getCategoryColor(p.category),
+                              borderRadius: 0,
+                            }}
+                          >
+                            {p.category}
+                          </span>
+                        </div>
+                      </td>
+                      <td style={{ textAlign: "left", color: "#666666" }}>
+                        {p.categoryGroup}
+                      </td>
+                      <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        {formatCompact(p.revenue24h)}
+                      </td>
+                      <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        {formatCompact(p.revenue30d)}
+                      </td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          fontWeight: 600,
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        {formatCompact(p.revenueAnn)}
+                      </td>
+                      <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        {formatCompact(p.marketCap)}
+                      </td>
+                      <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        {formatRatio(p.psRatio)}
+                      </td>
+                      <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        {formatCompact(p.tvl)}
+                      </td>
+                      <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        {p.revenueTvl != null
+                          ? `${(p.revenueTvl * 100).toFixed(1)}%`
+                          : "\u2014"}
+                      </td>
+                      <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        {formatMargin(p.margin)}
+                      </td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          fontVariantNumeric: "tabular-nums",
+                          color:
+                            p.change1d == null
+                              ? "#999999"
+                              : p.change1d >= 0
+                              ? "#2e7d32"
+                              : "#9e2b25",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {formatPct(p.change1d)}
+                      </td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          fontVariantNumeric: "tabular-nums",
+                          color:
+                            p.change7d == null
+                              ? "#999999"
+                              : p.change7d >= 0
+                              ? "#2e7d32"
+                              : "#9e2b25",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {formatPct(p.change7d)}
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredProtocols.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={13}
+                        style={{
+                          textAlign: "center",
+                          padding: "24px 0",
+                          color: "#999999",
+                        }}
+                      >
+                        No protocols found in this category.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ChartExport>
+
+        <DataSource
+          sources={["DefiLlama (live)", "CoinGecko (live)", "TokenTerminal (live)"]}
+        />
+      </Card>
+
+      {/* ================================================================ */}
+      {/* B. Revenue vs Market Cap Scatter Plot                            */}
+      {/* ================================================================ */}
+      <Card>
+        <ChartExport
+          data={scatterRevMcap.map((d) => ({
+            protocol: d.name,
+            revenueAnn: d.revenueAnn,
+            marketCap: d.marketCap,
+            psRatio: d.psRatio ?? "",
+            tvl: d.tvl ?? "",
+            category: d.category,
+          }))}
+          filename="revenue-vs-marketcap-scatter"
+          title="Revenue vs Market Cap"
+        >
+          <p
+            style={{ fontSize: "14px", color: "#666666", lineHeight: "1.5", marginBottom: 16 }}
+          >
+            Each dot is a protocol. X-axis shows annualized revenue; Y-axis shows market cap (both log scale).
+            The diagonal line marks P/S = 20x. Dots below the line trade at &lt;20x revenue.
+          </p>
+
+          {isLoading ? (
+            <ChartSkeleton />
+          ) : scatterRevMcap.length === 0 ? (
+            <div className="h-[400px] flex items-center justify-center text-sm" style={{ color: "#999999" }}>
+              Insufficient data to render chart.
+            </div>
+          ) : (
+            <div className="h-[480px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#e8e8e8"
+                    vertical={true}
+                  />
+                  <XAxis
+                    type="number"
+                    dataKey="revenueAnn"
+                    name="Annualized Revenue"
+                    scale="log"
+                    domain={["auto", "auto"]}
+                    tickFormatter={logTickFormatter}
+                    tick={{ fontSize: 11, fill: "#999999" }}
+                    tickLine={false}
+                    axisLine={{ stroke: "#d4d4d4" }}
+                    label={{
+                      value: "Annualized Revenue",
+                      position: "insideBottom",
+                      offset: -10,
+                      style: { fontSize: 11, fill: "#999999", textAnchor: "middle" },
+                    }}
+                  />
+                  <YAxis
+                    type="number"
+                    dataKey="marketCap"
+                    name="Market Cap"
+                    scale="log"
+                    domain={["auto", "auto"]}
+                    tickFormatter={logTickFormatter}
+                    tick={{ fontSize: 11, fill: "#999999" }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={70}
+                    label={{
+                      value: "Market Cap",
+                      angle: -90,
+                      position: "insideLeft",
+                      offset: -5,
+                      style: { fontSize: 11, fill: "#999999", textAnchor: "middle" },
+                    }}
+                  />
+                  <ZAxis type="number" dataKey="z" range={[30, 300]} />
+                  <Tooltip
+                    content={<ScatterTooltipRevMcap />}
+                    cursor={{ strokeDasharray: "3 3", stroke: "#d4d4d4" }}
+                  />
+                  {/* P/S = 20x reference line: plotted as a Scatter with line shape */}
+                  <Scatter
+                    name="P/S = 20x"
+                    data={ps20xLineData.map((pt) => ({
+                      revenueAnn: pt.x,
+                      marketCap: pt.y,
+                      z: 0,
+                      name: "P/S = 20x",
+                    }))}
+                    fill="none"
+                    line={{ stroke: "#999999", strokeDasharray: "6 4", strokeWidth: 1 }}
+                    shape={() => <></>}
+                    legendType="line"
+                  />
+                  {/* Per-category scatter groups */}
+                  {Object.entries(scatterRevMcapByCategory).map(([cat, data]) => (
+                    <Scatter
+                      key={cat}
+                      name={cat}
+                      data={data}
+                      fill={categoryColorMap[cat] || "#94a3b8"}
+                      fillOpacity={0.8}
+                    />
+                  ))}
+                  <Legend
+                    verticalAlign="top"
+                    height={36}
+                    iconSize={10}
+                    wrapperStyle={{ fontSize: 11 }}
+                  />
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </ChartExport>
+
+        <DataSource
+          sources={["DefiLlama (live)", "CoinGecko (live)"]}
+        />
+      </Card>
+
+      {/* ================================================================ */}
+      {/* C. Revenue vs TVL Scatter Plot                                   */}
+      {/* ================================================================ */}
+      <Card>
+        <ChartExport
+          data={scatterRevTvl.map((d) => ({
+            protocol: d.name,
+            tvl: d.tvl,
+            revenueAnn: d.revenueAnn,
+            revenueTvl: d.revenueTvl ?? "",
+            category: d.category,
+          }))}
+          filename="revenue-vs-tvl-scatter"
+          title="Revenue vs TVL (Capital Efficiency)"
+        >
+          <p
+            style={{ fontSize: "14px", color: "#666666", lineHeight: "1.5", marginBottom: 16 }}
+          >
+            Capital efficiency: protocols above the reference line generate more revenue per dollar
+            of TVL than the industry average ({(avgRevenueTvl * 100).toFixed(1)}%).
+          </p>
+
+          {isLoading ? (
+            <ChartSkeleton />
+          ) : scatterRevTvl.length === 0 ? (
+            <div className="h-[400px] flex items-center justify-center text-sm" style={{ color: "#999999" }}>
+              Insufficient data to render chart.
+            </div>
+          ) : (
+            <div className="h-[480px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#e8e8e8"
+                    vertical={true}
+                  />
+                  <XAxis
+                    type="number"
+                    dataKey="tvl"
+                    name="TVL"
+                    scale="log"
+                    domain={["auto", "auto"]}
+                    tickFormatter={logTickFormatter}
+                    tick={{ fontSize: 11, fill: "#999999" }}
+                    tickLine={false}
+                    axisLine={{ stroke: "#d4d4d4" }}
+                    label={{
+                      value: "Total Value Locked",
+                      position: "insideBottom",
+                      offset: -10,
+                      style: { fontSize: 11, fill: "#999999", textAnchor: "middle" },
+                    }}
+                  />
+                  <YAxis
+                    type="number"
+                    dataKey="revenueAnn"
+                    name="Annualized Revenue"
+                    scale="log"
+                    domain={["auto", "auto"]}
+                    tickFormatter={logTickFormatter}
+                    tick={{ fontSize: 11, fill: "#999999" }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={70}
+                    label={{
+                      value: "Annualized Revenue",
+                      angle: -90,
+                      position: "insideLeft",
+                      offset: -5,
+                      style: { fontSize: 11, fill: "#999999", textAnchor: "middle" },
+                    }}
+                  />
+                  <ZAxis type="number" dataKey="z" range={[40, 100]} />
+                  <Tooltip
+                    content={<ScatterTooltipRevTvl />}
+                    cursor={{ strokeDasharray: "3 3", stroke: "#d4d4d4" }}
+                  />
+                  {/* Reference line for avg Revenue/TVL ratio */}
+                  {avgRevenueTvl > 0 && (
+                    <Scatter
+                      name={`Avg Rev/TVL (${(avgRevenueTvl * 100).toFixed(1)}%)`}
+                      data={[1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11].map((tvlVal) => ({
+                        tvl: tvlVal,
+                        revenueAnn: tvlVal * avgRevenueTvl,
+                        z: 0,
+                        name: "Average",
+                      }))}
+                      fill="none"
+                      line={{ stroke: "#999999", strokeDasharray: "6 4", strokeWidth: 1 }}
+                      shape={() => <></>}
+                      legendType="line"
+                    />
+                  )}
+                  {/* Per-category scatter groups */}
+                  {Object.entries(scatterRevTvlByCategory).map(([cat, data]) => (
+                    <Scatter
+                      key={cat}
+                      name={cat}
+                      data={data}
+                      fill={categoryColorMap[cat] || "#94a3b8"}
+                      fillOpacity={0.8}
+                    />
+                  ))}
+                  <Legend
+                    verticalAlign="top"
+                    height={36}
+                    iconSize={10}
+                    wrapperStyle={{ fontSize: 11 }}
+                  />
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </ChartExport>
+
+        <DataSource
+          sources={["DefiLlama (live fees + TVL)"]}
+        />
+      </Card>
+
+      {/* ================================================================ */}
+      {/* D. Revenue Growth Heatmap                                        */}
+      {/* ================================================================ */}
+      <Card>
+        <ChartExport
+          data={heatmapData.map((d) => ({
+            protocol: d.displayName,
+            change_7d: d.change7d ?? "",
+            revenue_24h: d.revenue24h,
+            category: d.categoryGroup,
+          }))}
+          filename="revenue-growth-heatmap"
+          title="Revenue Momentum Heatmap (7d Change)"
+        >
+          <p
+            style={{ fontSize: "14px", color: "#666666", lineHeight: "1.5", marginBottom: 16 }}
+          >
+            Each cell shows a protocol&apos;s 7-day revenue change. Green = growing, red = declining.
+            Sorted by absolute magnitude of change.
+          </p>
+
+          {isLoading ? (
+            <ChartSkeleton height="h-[260px]" />
+          ) : heatmapData.length === 0 ? (
+            <div className="h-[200px] flex items-center justify-center text-sm" style={{ color: "#999999" }}>
+              Insufficient data to render heatmap.
+            </div>
+          ) : (
+            <div
+              className="grid gap-1"
+              style={{
+                gridTemplateColumns: "repeat(auto-fill, minmax(90px, 1fr))",
+              }}
+            >
+              {heatmapData.map((p) => (
+                <div
+                  key={p.name}
+                  style={{
+                    backgroundColor: getHeatmapColor(p.change7d),
+                    color: getHeatmapTextColor(p.change7d),
+                    padding: "8px 6px",
+                    borderRadius: 0,
+                    textAlign: "center",
+                    cursor: "default",
+                    border: "1px solid rgba(255,255,255,0.2)",
+                  }}
+                  title={`${p.displayName}: ${formatPct(p.change7d)} 7d change`}
+                >
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      letterSpacing: "0.03em",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {abbreviate(p.displayName)}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      marginTop: 2,
+                    }}
+                  >
+                    {formatPct(p.change7d)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </ChartExport>
+
+        {/* Heatmap legend */}
+        <div className="flex items-center gap-2 mt-4" style={{ fontSize: "11px", color: "#999999" }}>
+          <span>Strong decline</span>
+          <div className="flex gap-0">
+            {["#991b1b", "#dc2626", "#f87171", "#fecaca", "#bbf7d0", "#4ade80", "#22c55e", "#15803d", "#166534"].map(
+              (c) => (
+                <div
+                  key={c}
+                  style={{
+                    width: 20,
+                    height: 10,
+                    backgroundColor: c,
+                    borderRadius: 0,
+                  }}
+                />
+              )
+            )}
+          </div>
+          <span>Strong growth</span>
+        </div>
+
+        <DataSource sources={["DefiLlama (live)"]} />
+      </Card>
+    </section>
+  );
+}

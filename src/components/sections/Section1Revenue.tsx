@@ -267,8 +267,10 @@ export default function Section1Revenue() {
 
   // ---- PE comparison data: live crypto P/E if we have market cap + revenue ----
   const peComparisonData = useMemo(() => {
-    if (ctx.fees?.totalFees24h && ctx.sentiment?.marketCap?.total) {
-      const totalMarketCap = ctx.sentiment.marketCap.total / 1e9; // to $B
+    // Prefer CoinGecko global market cap (more precise), fall back to sentiment
+    const rawMarketCap = ctx.coinGecko?.global?.totalMarketCap ?? ctx.sentiment?.marketCap?.total ?? 0;
+    if (ctx.fees?.totalFees24h && rawMarketCap > 0) {
+      const totalMarketCap = rawMarketCap / 1e9; // to $B
       const annualizedRev = (ctx.fees.totalFees24h * 365) / 1e9;
       const liveCryptoPE = Math.round(totalMarketCap / annualizedRev);
 
@@ -298,7 +300,7 @@ export default function Section1Revenue() {
       });
     }
     return staticPEData;
-  }, [ctx.fees, ctx.sentiment]);
+  }, [ctx.fees, ctx.sentiment, ctx.coinGecko]);
 
   // ---- PE comparison sorted & filtered ----
   const peDataMain = useMemo(
@@ -390,6 +392,102 @@ export default function Section1Revenue() {
           </>
         )}
       </div>
+
+      {/* ---- CoinGecko Market Context ---- */}
+      {ctx.coinGecko?.global && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <StatCard
+            label="Total Crypto Market Cap"
+            value={`$${(ctx.coinGecko.global.totalMarketCap / 1e12).toFixed(2)}T`}
+            subvalue="All cryptocurrencies (CoinGecko)"
+            change={`${ctx.coinGecko.global.marketCapChange24h >= 0 ? "+" : ""}${ctx.coinGecko.global.marketCapChange24h.toFixed(1)}% 24h`}
+            changeType={ctx.coinGecko.global.marketCapChange24h >= 0 ? "positive" : "negative"}
+          />
+          <StatCard
+            label="24h Trading Volume"
+            value={`$${(ctx.coinGecko.global.totalVolume24h / 1e9).toFixed(1)}B`}
+            subvalue="Global spot volume"
+          />
+          <StatCard
+            label="BTC / ETH Dominance"
+            value={`${ctx.coinGecko.global.btcDominance.toFixed(1)}% / ${ctx.coinGecko.global.ethDominance.toFixed(1)}%`}
+            subvalue="Market cap share"
+          />
+        </div>
+      )}
+
+      {/* ---- Market Cap Trend (CoinGecko historical) ---- */}
+      {ctx.coinGecko?.historicalMarketCap && ctx.coinGecko.historicalMarketCap.length > 0 && (
+        <Card>
+          <ChartExport
+            data={ctx.coinGecko.historicalMarketCap.map((d) => ({
+              date: new Date(d.date * 1000).toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+              marketCap: d.marketCap / 1e12,
+            }))}
+            filename="crypto-total-market-cap-trend"
+            title="Total Crypto Market Cap Trend"
+          >
+            <p className="text-sm text-slate-500 mb-6">
+              Historical total crypto market capitalization -- context for revenue growth relative to market size.
+            </p>
+
+            <div className="h-[260px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart
+                  data={ctx.coinGecko.historicalMarketCap.map((d) => ({
+                    date: new Date(d.date * 1000).toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+                    marketCap: d.marketCap / 1e12,
+                  }))}
+                  margin={{ top: 10, right: 20, left: 10, bottom: 0 }}
+                >
+                  <defs>
+                    <linearGradient id="gradMcap" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 11, fill: "#94a3b8" }}
+                    tickLine={false}
+                    axisLine={{ stroke: "#e2e8f0" }}
+                    interval={Math.max(1, Math.floor(ctx.coinGecko.historicalMarketCap.length / 8))}
+                  />
+                  <YAxis
+                    tickFormatter={(v: number) => `$${v.toFixed(1)}T`}
+                    tick={{ fontSize: 11, fill: "#94a3b8" }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={60}
+                  />
+                  <Tooltip
+                    formatter={(value: number) => [`$${value.toFixed(2)}T`, "Market Cap"]}
+                    contentStyle={{
+                      backgroundColor: "white",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "8px",
+                      fontSize: "13px",
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="marketCap"
+                    name="Total Market Cap"
+                    stroke="#8b5cf6"
+                    strokeWidth={2}
+                    fill="url(#gradMcap)"
+                    dot={false}
+                    activeDot={{ r: 4, strokeWidth: 2, fill: "#fff" }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </ChartExport>
+
+          <DataSource sources={["CoinGecko (live)"]} />
+        </Card>
+      )}
 
       {/* ---- Chart 1: Quarterly Revenue Time Series ---- */}
       <Card>
@@ -605,6 +703,75 @@ export default function Section1Revenue() {
           </p>
         </InsightBox>
       </div>
+
+      {/* ---- Token Price Data for Key Protocols ---- */}
+      {ctx.coinGecko?.tokens && ctx.coinGecko.tokens.length > 0 && (
+        <Card>
+          <h3 className="text-lg font-bold text-slate-900 mb-1">
+            Protocol Token Prices
+          </h3>
+          <p className="text-sm text-slate-500 mb-4">
+            Live token prices for key revenue-generating protocols -- context for
+            interpreting revenue multiples and market positioning.
+          </p>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200">
+                  <th className="text-left py-3 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Token</th>
+                  <th className="text-right py-3 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Price</th>
+                  <th className="text-right py-3 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">24h</th>
+                  <th className="text-right py-3 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">7d</th>
+                  <th className="text-right py-3 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">30d</th>
+                  <th className="text-right py-3 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Market Cap</th>
+                  <th className="text-right py-3 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Volume (24h)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ctx.coinGecko.tokens.map((token, idx) => (
+                  <tr key={token.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"}>
+                    <td className="py-3 px-3 font-medium text-slate-900">
+                      <div className="flex items-center gap-2">
+                        <span className="uppercase text-xs font-bold text-slate-400 bg-slate-100 rounded px-1.5 py-0.5">
+                          {token.symbol}
+                        </span>
+                        <span>{token.name}</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-right font-medium text-slate-900">
+                      ${token.currentPrice >= 1
+                        ? token.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                        : token.currentPrice.toFixed(4)}
+                    </td>
+                    <td className={`py-3 px-3 text-right font-medium ${token.priceChange24h >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                      {token.priceChange24h >= 0 ? "+" : ""}{token.priceChange24h.toFixed(1)}%
+                    </td>
+                    <td className={`py-3 px-3 text-right font-medium ${token.priceChange7d >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                      {token.priceChange7d >= 0 ? "+" : ""}{token.priceChange7d.toFixed(1)}%
+                    </td>
+                    <td className={`py-3 px-3 text-right font-medium ${token.priceChange30d >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                      {token.priceChange30d >= 0 ? "+" : ""}{token.priceChange30d.toFixed(1)}%
+                    </td>
+                    <td className="py-3 px-3 text-right text-slate-700">
+                      ${token.marketCap >= 1e9
+                        ? `${(token.marketCap / 1e9).toFixed(1)}B`
+                        : `${(token.marketCap / 1e6).toFixed(0)}M`}
+                    </td>
+                    <td className="py-3 px-3 text-right text-slate-600">
+                      ${token.totalVolume24h >= 1e9
+                        ? `${(token.totalVolume24h / 1e9).toFixed(1)}B`
+                        : `${(token.totalVolume24h / 1e6).toFixed(0)}M`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <DataSource sources={["CoinGecko (live)"]} />
+        </Card>
+      )}
 
       {/* ---- Chart 3: P/E Comparison (Horizontal Bar) ---- */}
       <Card>

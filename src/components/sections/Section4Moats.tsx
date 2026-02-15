@@ -68,6 +68,17 @@ const PROTOCOL_SLUG_MAP: Record<string, string[]> = {
   "Jupiter": ["jupiter"],
 };
 
+// Map from moatAnalysis protocol names to CoinGecko token identifiers
+// Uses symbol (lowercase) for matching against CoinGecko tokens array
+const COINGECKO_TOKEN_MAP: Record<string, string[]> = {
+  "Tether": ["usdt", "tether"],
+  "Circle": ["usdc", "usd-coin"],
+  "Aave": ["aave"],
+  "Uniswap": ["uni", "uniswap"],
+  "Hyperliquid": ["hype", "hyperliquid"],
+  "Jupiter": ["jup", "jupiter"],
+};
+
 // Radar chart dimensions — each protocol scored 1-10 across moat axes
 const radarDimensions = [
   { dimension: "Network Effects", Tether: 10, Circle: 6, Aave: 7, Uniswap: 5, Hyperliquid: 6, Jupiter: 5 },
@@ -133,11 +144,16 @@ function ProtocolMoatCard({
   protocol,
   isHighlighted = false,
 }: {
-  protocol: (typeof moatAnalysis)[number] & { revenue: number };
+  protocol: (typeof moatAnalysis)[number] & { revenue: number; tokenPrice: number | null; tokenMarketCap: number | null; tokenFDV: number | null; tokenPriceChange24h: number | null; tokenSymbol: string | null };
   isHighlighted?: boolean;
 }) {
   const colors = moatStrengthColor(protocol.moatStrength);
   const shortName = protocol.protocol.split(" (")[0];
+
+  // Compute implied P/S ratio: FDV / annualized revenue
+  const impliedPS = protocol.tokenFDV && protocol.revenue > 0
+    ? protocol.tokenFDV / (protocol.revenue * 1e6)
+    : null;
 
   return (
     <Card
@@ -174,6 +190,66 @@ function ProtocolMoatCard({
           <p className="text-xs text-slate-500">annualized revenue</p>
         </div>
       </div>
+
+      {/* Live token price + market data (CoinGecko) */}
+      {protocol.tokenPrice != null && (
+        <div className="bg-slate-50 rounded-lg border border-slate-100 p-3 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              {protocol.tokenSymbol && (
+                <span className="bg-slate-200 text-slate-600 rounded px-1.5 py-0.5 text-[10px] font-bold">
+                  {protocol.tokenSymbol}
+                </span>
+              )}
+              Token Data
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            </span>
+            {protocol.tokenPriceChange24h != null && (
+              <span className={`text-xs font-semibold ${protocol.tokenPriceChange24h >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                {protocol.tokenPriceChange24h >= 0 ? "+" : ""}{protocol.tokenPriceChange24h.toFixed(1)}% 24h
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <span className="text-slate-400">Price:</span>{" "}
+              <span className="font-semibold text-slate-800">
+                ${protocol.tokenPrice >= 1
+                  ? protocol.tokenPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                  : protocol.tokenPrice.toFixed(4)}
+              </span>
+            </div>
+            {protocol.tokenMarketCap != null && protocol.tokenMarketCap > 0 && (
+              <div>
+                <span className="text-slate-400">MCap:</span>{" "}
+                <span className="font-semibold text-slate-800">
+                  ${protocol.tokenMarketCap >= 1e9
+                    ? `${(protocol.tokenMarketCap / 1e9).toFixed(1)}B`
+                    : `${(protocol.tokenMarketCap / 1e6).toFixed(0)}M`}
+                </span>
+              </div>
+            )}
+            {protocol.tokenFDV != null && protocol.tokenFDV > 0 && (
+              <div>
+                <span className="text-slate-400">FDV:</span>{" "}
+                <span className="font-semibold text-slate-800">
+                  ${protocol.tokenFDV >= 1e9
+                    ? `${(protocol.tokenFDV / 1e9).toFixed(1)}B`
+                    : `${(protocol.tokenFDV / 1e6).toFixed(0)}M`}
+                </span>
+              </div>
+            )}
+            {impliedPS != null && (
+              <div>
+                <span className="text-slate-400">P/S:</span>{" "}
+                <span className={`font-semibold ${impliedPS > 100 ? "text-red-600" : impliedPS > 30 ? "text-amber-600" : "text-emerald-700"}`}>
+                  {impliedPS >= 1000 ? `${(impliedPS / 1000).toFixed(1)}K` : impliedPS.toFixed(1)}x
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Moat badge + market share */}
       <div className="flex items-center justify-between mb-4">
@@ -268,34 +344,59 @@ export default function Section4Moats() {
   const ctx = useDataContext();
 
   // -----------------------------------------------------------------------
-  // Merge live revenue data into moatAnalysis where available
+  // Merge live revenue data + CoinGecko token data into moatAnalysis
   // -----------------------------------------------------------------------
   const enrichedMoatAnalysis = useMemo(() => {
     return moatAnalysis.map((p) => {
       const shortName = p.protocol.split(" (")[0];
+      let enriched = { ...p, tokenPrice: null as number | null, tokenMarketCap: null as number | null, tokenFDV: null as number | null, tokenPriceChange24h: null as number | null, tokenSymbol: null as string | null };
+
+      // Merge live DefiLlama revenue
       const slugs = PROTOCOL_SLUG_MAP[shortName];
-      if (!slugs || !ctx.fees?.protocols) return { ...p };
+      if (slugs && ctx.fees?.protocols) {
+        const liveProto = ctx.fees.protocols.find((lp) =>
+          slugs.some(
+            (slug) =>
+              lp.name.toLowerCase() === slug.toLowerCase() ||
+              lp.displayName.toLowerCase() === slug.toLowerCase()
+          )
+        );
 
-      // Try to find matching protocol in live data
-      const liveProto = ctx.fees.protocols.find((lp) =>
-        slugs.some(
-          (slug) =>
-            lp.name.toLowerCase() === slug.toLowerCase() ||
-            lp.displayName.toLowerCase() === slug.toLowerCase()
-        )
-      );
-
-      if (liveProto && liveProto.total24h > 0) {
-        // Use live daily fees * 365 to annualize, in $M
-        const annualized = Math.round((liveProto.total24h * 365) / 1e6 * 1e6) / 1e6;
-        // Convert to $M for consistency with static data
-        const annualizedM = Math.round(liveProto.total24h * 365);
-        return { ...p, revenue: annualizedM > 0 ? annualizedM : p.revenue };
+        if (liveProto && liveProto.total24h > 0) {
+          const annualizedM = Math.round(liveProto.total24h * 365);
+          enriched = { ...enriched, revenue: annualizedM > 0 ? annualizedM : p.revenue };
+        }
       }
 
-      return { ...p };
+      // Merge CoinGecko token data
+      const geckoIds = COINGECKO_TOKEN_MAP[shortName];
+      if (geckoIds && ctx.coinGecko?.tokens) {
+        const token = ctx.coinGecko.tokens.find((t) =>
+          geckoIds.some(
+            (gid) =>
+              t.symbol.toLowerCase() === gid.toLowerCase() ||
+              t.id.toLowerCase() === gid.toLowerCase()
+          )
+        );
+
+        if (token) {
+          enriched = {
+            ...enriched,
+            tokenPrice: token.currentPrice,
+            tokenMarketCap: token.marketCap,
+            tokenFDV: token.fullyDilutedValuation,
+            tokenPriceChange24h: token.priceChange24h,
+            tokenSymbol: token.symbol.toUpperCase(),
+          };
+        }
+      }
+
+      return enriched;
     });
-  }, [ctx.fees]);
+  }, [ctx.fees, ctx.coinGecko]);
+
+  // Whether CoinGecko token data is available for enrichment
+  const hasCoinGeckoTokens = enrichedMoatAnalysis.some((p) => p.tokenPrice != null);
 
   // Build bar chart data from enriched analysis
   const barChartData = useMemo(
@@ -612,9 +713,14 @@ export default function Section4Moats() {
 
       {/* ---- Summary table ---- */}
       <Card>
-        <h3 className="text-lg font-bold text-slate-900 mb-4">
+        <h3 className="text-lg font-bold text-slate-900 mb-1">
           Moat Summary Matrix
         </h3>
+        {hasCoinGeckoTokens && (
+          <p className="text-sm text-slate-500 mb-4">
+            Enriched with live token market cap, FDV, and implied P/S ratios from CoinGecko.
+          </p>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -625,6 +731,19 @@ export default function Section4Moats() {
                 <th className="text-left py-3 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   Revenue
                 </th>
+                {hasCoinGeckoTokens && (
+                  <>
+                    <th className="text-left py-3 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Token Price
+                    </th>
+                    <th className="text-left py-3 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      FDV
+                    </th>
+                    <th className="text-left py-3 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      P/S
+                    </th>
+                  </>
+                )}
                 <th className="text-left py-3 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   Share
                 </th>
@@ -643,6 +762,9 @@ export default function Section4Moats() {
               {enrichedMoatAnalysis.map((p, idx) => {
                 const colors = moatStrengthColor(p.moatStrength);
                 const isHL = p.protocol.includes("Hyperliquid");
+                const impliedPS = p.tokenFDV && p.revenue > 0
+                  ? p.tokenFDV / (p.revenue * 1e6)
+                  : null;
                 return (
                   <tr
                     key={p.protocol}
@@ -651,11 +773,58 @@ export default function Section4Moats() {
                     }`}
                   >
                     <td className={`py-3 px-3 font-medium ${isHL ? "text-emerald-900 font-bold" : "text-slate-900"}`}>
-                      {p.protocol.split(" (")[0]}
+                      <div className="flex items-center gap-1.5">
+                        {p.protocol.split(" (")[0]}
+                        {p.tokenSymbol && (
+                          <span className="text-[10px] font-bold text-slate-400 bg-slate-100 rounded px-1 py-0.5">
+                            {p.tokenSymbol}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 px-3 text-slate-700 font-medium">
                       ${(p.revenue / 1000).toFixed(1)}B
                     </td>
+                    {hasCoinGeckoTokens && (
+                      <>
+                        <td className="py-3 px-3 text-slate-700">
+                          {p.tokenPrice != null ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium">
+                                ${p.tokenPrice >= 1
+                                  ? p.tokenPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                  : p.tokenPrice.toFixed(4)}
+                              </span>
+                              {p.tokenPriceChange24h != null && (
+                                <span className={`text-[10px] font-semibold ${p.tokenPriceChange24h >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                                  {p.tokenPriceChange24h >= 0 ? "+" : ""}{p.tokenPriceChange24h.toFixed(1)}%
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-300">--</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-slate-700 font-medium">
+                          {p.tokenFDV != null && p.tokenFDV > 0 ? (
+                            `$${p.tokenFDV >= 1e9
+                              ? `${(p.tokenFDV / 1e9).toFixed(1)}B`
+                              : `${(p.tokenFDV / 1e6).toFixed(0)}M`}`
+                          ) : (
+                            <span className="text-slate-300">--</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3">
+                          {impliedPS != null ? (
+                            <span className={`font-semibold ${impliedPS > 100 ? "text-red-600" : impliedPS > 30 ? "text-amber-600" : "text-emerald-700"}`}>
+                              {impliedPS >= 1000 ? `${(impliedPS / 1000).toFixed(1)}Kx` : `${impliedPS.toFixed(1)}x`}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">--</span>
+                          )}
+                        </td>
+                      </>
+                    )}
                     <td className="py-3 px-3 text-slate-600">{p.marketShare}%</td>
                     <td className="py-3 px-3">
                       <MoatBadge type={p.moatType.split("+")[0].trim()} strength={p.moatStrength} />
@@ -676,7 +845,7 @@ export default function Section4Moats() {
           </table>
         </div>
 
-        <DataSource sources={["TokenTerminal", "DefiLlama", "1kx Onchain Revenue Report Q3 2025", "Internal analysis"]} />
+        <DataSource sources={["TokenTerminal", "DefiLlama", "CoinGecko (live)", "1kx Onchain Revenue Report Q3 2025", "Internal analysis"]} />
       </Card>
     </section>
   );
