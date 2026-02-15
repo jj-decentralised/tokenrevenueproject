@@ -191,15 +191,25 @@ export interface LiveCoinGeckoData {
     circulatingSupply: number | null;
   }>;
   historicalMarketCap: Array<{ date: number; marketCap: number }>;
+  categories: Array<{
+    id: string;
+    name: string;
+    marketCap: number;
+    marketCapChange24h: number;
+    volume24h: number;
+  }>;
   fetchedAt: string;
 }
 
 export interface LiveSectorHistory {
   dates: number[];
   fees: Record<string, number[]>;
+  feesSub: Record<string, number[]>;
   revenue: Record<string, number[]> | null;
+  revenueSub: Record<string, number[]> | null;
   revenueDates: number[] | null;
   protocolCount: number;
+  subcategories: Record<string, string[]>;
 }
 
 export interface DataDifferential {
@@ -682,9 +692,12 @@ async function fetchSectorHistory(): Promise<LiveSectorHistory | null> {
     return {
       dates: Array.isArray(raw.dates) ? raw.dates.map(Number) : [],
       fees: raw.fees && typeof raw.fees === "object" ? raw.fees : {},
+      feesSub: raw.feesSub && typeof raw.feesSub === "object" ? raw.feesSub : {},
       revenue: raw.revenue && typeof raw.revenue === "object" ? raw.revenue : null,
+      revenueSub: raw.revenueSub && typeof raw.revenueSub === "object" ? raw.revenueSub : null,
       revenueDates: Array.isArray(raw.revenueDates) ? raw.revenueDates.map(Number) : null,
       protocolCount: Number(raw.protocolCount ?? 0),
+      subcategories: raw.subcategories && typeof raw.subcategories === "object" ? raw.subcategories : {},
     };
   } catch {
     return null;
@@ -742,10 +755,22 @@ async function fetchCoinGecko(): Promise<LiveCoinGeckoData | null> {
         }))
       : [];
 
+    const categories = Array.isArray(raw.categories)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? raw.categories.map((c: any) => ({
+          id: String(c.id ?? ""),
+          name: String(c.name ?? ""),
+          marketCap: Number(c.marketCap ?? 0),
+          marketCapChange24h: Number(c.marketCapChange24h ?? 0),
+          volume24h: Number(c.volume24h ?? 0),
+        }))
+      : [];
+
     return {
       global,
       tokens,
       historicalMarketCap,
+      categories,
       fetchedAt: String(raw.fetchedAt ?? new Date().toISOString()),
     };
   } catch {

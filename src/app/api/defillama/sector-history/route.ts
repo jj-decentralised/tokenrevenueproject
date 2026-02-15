@@ -1,15 +1,26 @@
 import { NextResponse } from "next/server";
-import { getCategoryGroup, GROUP_ORDER } from "@/lib/categories";
+import { getCategoryGroup, CATEGORY_GROUP, GROUP_ORDER, PROTOCOL_CATEGORY_OVERRIDES } from "@/lib/categories";
 
 // ----------------------------------------------------------------
 // GET /api/defillama/sector-history
 //
-// Returns daily fee/revenue totals grouped by sector (GROUP_ORDER).
+// Returns daily fee/revenue totals grouped by sector AND subcategory.
 // Uses DefiLlama's totalDataChartBreakdown for per-protocol daily data,
 // then aggregates server-side to keep the client payload small.
 //
+// Returns ALL available data (no cutoff) — client filters by time range.
+//
 // Response shape:
-//   { dates: number[], fees: Record<sector, number[]>, revenue: Record<sector, number[]> }
+//   {
+//     dates: number[],
+//     fees: Record<sector, number[]>,
+//     feesSub: Record<subcategory, number[]>,
+//     revenue: Record<sector, number[]>,
+//     revenueSub: Record<subcategory, number[]>,
+//     revenueDates: number[],
+//     protocolCount: number,
+//     subcategories: Record<sector, string[]>
+//   }
 //
 // Cached for 1 hour.
 // ----------------------------------------------------------------
@@ -28,61 +39,121 @@ async function fetchJSON(url: string): Promise<unknown> {
   return res.json();
 }
 
-// Build a protocol-name → sector mapping from the overview protocols list
-function buildSectorMap(protocols: unknown[]): Map<string, string> {
-  const map = new Map<string, string>();
+interface ProtocolInfo {
+  sector: string;
+  subcategory: string;
+}
+
+// Build protocol-name → { sector, subcategory } mapping
+function buildProtocolMap(protocols: unknown[]): Map<string, ProtocolInfo> {
+  const map = new Map<string, ProtocolInfo>();
   for (const p of protocols) {
     const proto = p as Record<string, unknown>;
     const name = String(proto.name ?? "").toLowerCase();
     const slug = String(proto.slug ?? proto.module ?? proto.name ?? "").toLowerCase();
-    const cat = proto.category ? String(proto.category) : "Other";
-    const sector = getCategoryGroup(cat, slug);
-    map.set(name, sector);
-    if (slug !== name) map.set(slug, sector);
-    // Also index by defillamaId if present
+    const rawCat = proto.category ? String(proto.category) : null;
+
+    // Get subcategory (raw DeFi Llama category) and sector (our 8 groups)
+    const override = PROTOCOL_CATEGORY_OVERRIDES[slug];
+    const subcategory = override || rawCat || "Other";
+    const sector = getCategoryGroup(subcategory, slug);
+
+    const info: ProtocolInfo = { sector, subcategory };
+    map.set(name, info);
+    if (slug !== name) map.set(slug, info);
     if (proto.defillamaId != null) {
-      map.set(String(proto.defillamaId), sector);
+      map.set(String(proto.defillamaId), info);
     }
   }
   return map;
 }
 
-// Parse the breakdown array: each entry is [timestamp, { protocolName: value, ... }]
+// Collect unique subcategories per sector
+function getSubcategoriesPerSector(protocolMap: Map<string, ProtocolInfo>): Record<string, string[]> {
+  const result: Record<string, Set<string>> = {};
+  for (const s of GROUP_ORDER) result[s] = new Set();
+
+  for (const info of protocolMap.values()) {
+    if (result[info.sector]) {
+      result[info.sector].add(info.subcategory);
+    }
+  }
+
+  const out: Record<string, string[]> = {};
+  for (const [sector, subs] of Object.entries(result)) {
+    out[sector] = Array.from(subs).sort();
+  }
+  return out;
+}
+
+interface AggResult {
+  dates: number[];
+  sectors: Record<string, number[]>;
+  subcats: Record<string, number[]>;
+}
+
+// Parse breakdown array and aggregate by both sector and subcategory
 function aggregateBreakdown(
   breakdown: unknown[],
-  sectorMap: Map<string, string>,
-  cutoffTs: number,
-): { dates: number[]; sectors: Record<string, number[]> } {
+  protocolMap: Map<string, ProtocolInfo>,
+): AggResult {
   const sectors: Record<string, number[]> = {};
   for (const s of GROUP_ORDER) sectors[s] = [];
+
+  const subcatArrays: Record<string, number[]> = {};
   const dates: number[] = [];
+
+  // Collect all known subcategories
+  const knownSubs = new Set<string>();
+  for (const info of protocolMap.values()) {
+    knownSubs.add(info.subcategory);
+  }
+  for (const sub of knownSubs) {
+    subcatArrays[sub] = [];
+  }
 
   for (const entry of breakdown) {
     if (!Array.isArray(entry) || entry.length < 2) continue;
     const ts = Number(entry[0]);
-    if (ts < cutoffTs) continue;
 
     const dayData = entry[1] as Record<string, unknown> | null;
     if (!dayData || typeof dayData !== "object") continue;
 
-    const daySums: Record<string, number> = {};
-    for (const s of GROUP_ORDER) daySums[s] = 0;
+    const daySectorSums: Record<string, number> = {};
+    for (const s of GROUP_ORDER) daySectorSums[s] = 0;
+
+    const daySubSums: Record<string, number> = {};
 
     for (const [protocolKey, val] of Object.entries(dayData)) {
       const v = Number(val);
       if (!Number.isFinite(v) || v <= 0) continue;
       const key = protocolKey.toLowerCase();
-      const sector = sectorMap.get(key) ?? "Other";
-      daySums[sector] = (daySums[sector] || 0) + v;
+      const info = protocolMap.get(key);
+      const sector = info?.sector ?? "Other";
+      const sub = info?.subcategory ?? "Other";
+
+      daySectorSums[sector] = (daySectorSums[sector] || 0) + v;
+      daySubSums[sub] = (daySubSums[sub] || 0) + v;
     }
 
     dates.push(ts);
     for (const s of GROUP_ORDER) {
-      sectors[s].push(daySums[s] || 0);
+      sectors[s].push(daySectorSums[s] || 0);
+    }
+    for (const sub of knownSubs) {
+      subcatArrays[sub].push(daySubSums[sub] || 0);
     }
   }
 
-  return { dates, sectors };
+  // Remove subcategories that are all zeros (no data)
+  const subcats: Record<string, number[]> = {};
+  for (const [sub, arr] of Object.entries(subcatArrays)) {
+    if (arr.some(v => v > 0)) {
+      subcats[sub] = arr;
+    }
+  }
+
+  return { dates, sectors, subcats };
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -100,40 +171,53 @@ export async function GET(): Promise<NextResponse> {
       ).catch(() => null) as Promise<Record<string, unknown> | null>,
     ]);
 
-    // Build sector map from the protocols list
+    // Build protocol map from the protocols list
     const protocols = Array.isArray(feesRaw.protocols) ? feesRaw.protocols : [];
-    const sectorMap = buildSectorMap(protocols);
+    const protocolMap = buildProtocolMap(protocols);
 
     // Also add protocols from revenue response if available
     if (revenueRaw && Array.isArray(revenueRaw.protocols)) {
-      const revMap = buildSectorMap(revenueRaw.protocols);
-      for (const [k, v] of revMap) {
-        if (!sectorMap.has(k)) sectorMap.set(k, v);
+      for (const p of revenueRaw.protocols) {
+        const proto = p as Record<string, unknown>;
+        const name = String(proto.name ?? "").toLowerCase();
+        if (!protocolMap.has(name)) {
+          const slug = String(proto.slug ?? proto.module ?? proto.name ?? "").toLowerCase();
+          const rawCat = proto.category ? String(proto.category) : null;
+          const override = PROTOCOL_CATEGORY_OVERRIDES[slug];
+          const subcategory = override || rawCat || "Other";
+          const sector = getCategoryGroup(subcategory, slug);
+          const info: ProtocolInfo = { sector, subcategory };
+          protocolMap.set(name, info);
+          if (slug !== name) protocolMap.set(slug, info);
+        }
       }
     }
 
-    // Cutoff: last 365 days
-    const cutoffTs = Math.floor(Date.now() / 1000) - 365 * 86400;
+    // Get subcategory list per sector
+    const subcategories = getSubcategoriesPerSector(protocolMap);
 
-    // Parse fee breakdown
+    // Parse fee breakdown — NO cutoff, return all available data
     const feesBreakdown = Array.isArray(feesRaw.totalDataChartBreakdown)
       ? feesRaw.totalDataChartBreakdown
       : [];
-    const feesAgg = aggregateBreakdown(feesBreakdown, sectorMap, cutoffTs);
+    const feesAgg = aggregateBreakdown(feesBreakdown, protocolMap);
 
     // Parse revenue breakdown
-    let revenueAgg: { dates: number[]; sectors: Record<string, number[]> } | null = null;
+    let revenueAgg: AggResult | null = null;
     if (revenueRaw && Array.isArray(revenueRaw.totalDataChartBreakdown)) {
-      revenueAgg = aggregateBreakdown(revenueRaw.totalDataChartBreakdown, sectorMap, cutoffTs);
+      revenueAgg = aggregateBreakdown(revenueRaw.totalDataChartBreakdown, protocolMap);
     }
 
     return NextResponse.json({
       dates: feesAgg.dates,
       fees: feesAgg.sectors,
+      feesSub: feesAgg.subcats,
       revenue: revenueAgg?.sectors ?? null,
+      revenueSub: revenueAgg?.subcats ?? null,
       revenueDates: revenueAgg?.dates ?? null,
       protocolCount: protocols.length,
-      sectorCount: sectorMap.size,
+      sectorCount: protocolMap.size,
+      subcategories,
       fetchedAt: new Date().toISOString(),
     });
   } catch (err) {

@@ -51,10 +51,20 @@ interface HistoricalMarketCapEntry {
   marketCap: number;
 }
 
+interface CategoryData {
+  id: string;
+  name: string;
+  marketCap: number;
+  marketCapChange24h: number;
+  volume24h: number;
+  top3Coins: string[];
+}
+
 interface CoinGeckoResponse {
   global: GlobalData;
   tokens: TokenData[];
   historicalMarketCap: HistoricalMarketCapEntry[];
+  categories: CategoryData[];
   fetchedAt: string;
 }
 
@@ -263,6 +273,31 @@ async function fetchHistoricalMarketCap(): Promise<HistoricalMarketCapEntry[]> {
   return [];
 }
 
+async function fetchCategories(): Promise<CategoryData[]> {
+  const base = getBaseUrl();
+  try {
+    const url = `${base}/coins/categories?order=market_cap_desc`;
+    const data = (await fetchJSON(url)) as Record<string, unknown>[];
+    if (!Array.isArray(data)) return [];
+
+    return data
+      .filter((cat) => cat.id && safeNum(cat.market_cap as unknown) > 0)
+      .map((cat) => ({
+        id: String(cat.id ?? ""),
+        name: String(cat.name ?? ""),
+        marketCap: safeNum(cat.market_cap as unknown),
+        marketCapChange24h: safeNum(cat.market_cap_change_24h as unknown),
+        volume24h: safeNum(cat.total_volume as unknown),
+        top3Coins: Array.isArray(cat.top_3_coins)
+          ? (cat.top_3_coins as string[]).filter(Boolean).slice(0, 3)
+          : [],
+      }));
+  } catch (err) {
+    console.warn("[/api/coingecko] Failed to fetch categories:", err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
 // ---------- route handler ----------
 
 export async function GET(): Promise<NextResponse> {
@@ -279,13 +314,17 @@ export async function GET(): Promise<NextResponse> {
     // Rate limiting delay between requests
     await delay(200);
 
-    // Fetch historical market cap
-    const historicalMarketCap = await fetchHistoricalMarketCap();
+    // Fetch historical market cap and categories in parallel
+    const [historicalMarketCap, categories] = await Promise.all([
+      fetchHistoricalMarketCap(),
+      (async () => { await delay(200); return fetchCategories(); })(),
+    ]);
 
     const body: CoinGeckoResponse = {
       global: globalData,
       tokens,
       historicalMarketCap,
+      categories,
       fetchedAt: new Date().toISOString(),
     };
 

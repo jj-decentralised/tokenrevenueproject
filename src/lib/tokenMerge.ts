@@ -429,7 +429,7 @@ export function buildUnifiedTokenList(
       categoryGroup = mapping.categoryGroup;
       subcategory = mapping.subcategory;
     } else {
-      const cat = categorizeToken(null, null, t.name);
+      const cat = categorizeToken(null, null, t.name, t.id);
       categoryGroup = cat.categoryGroup;
       subcategory = cat.subcategory;
     }
