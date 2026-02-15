@@ -6,7 +6,7 @@ import { getExpandedTokenIds } from "@/lib/protocolTokenMap";
 //
 // Fetches CoinGecko market data:
 //   1. Global market data (total market cap, BTC/ETH dominance, volume)
-//   2. Top protocol token prices + market caps
+//   2. Broad token market data (top 1000 by market cap + mapped protocol tokens)
 //   3. Historical total crypto market cap (365 days)
 //
 // When COINGECKO_API_KEY is set, uses the Pro API at
@@ -17,10 +17,6 @@ import { getExpandedTokenIds } from "@/lib/protocolTokenMap";
 // ----------------------------------------------------------------
 
 export const revalidate = 1800; // 30 minutes
-
-// ---------- constants ----------
-
-const TOKEN_IDS = getExpandedTokenIds();
 
 // ---------- response types ----------
 
@@ -131,17 +127,8 @@ async function fetchGlobalData(): Promise<GlobalData> {
   };
 }
 
-async function fetchTokenData(): Promise<TokenData[]> {
-  const base = getBaseUrl();
-  const ids = TOKEN_IDS.join(",");
-  const perPage = Math.min(Math.max(TOKEN_IDS.length, 50), 250);
-  const url = `${base}/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&per_page=${perPage}&page=1&sparkline=false&price_change_percentage=24h,7d,30d`;
-
-  const data = (await fetchJSON(url)) as Record<string, unknown>[];
-
-  if (!Array.isArray(data)) return [];
-
-  return data.map((coin: Record<string, unknown>): TokenData => ({
+function parseToken(coin: Record<string, unknown>): TokenData {
+  return {
     id: String(coin.id ?? ""),
     symbol: String(coin.symbol ?? ""),
     name: String(coin.name ?? ""),
@@ -157,7 +144,67 @@ async function fetchTokenData(): Promise<TokenData[]> {
     atl: safeNumOrNull(coin.atl),
     athChangePercentage: safeNumOrNull(coin.ath_change_percentage),
     circulatingSupply: safeNumOrNull(coin.circulating_supply),
-  }));
+  };
+}
+
+async function fetchTokenData(): Promise<TokenData[]> {
+  const base = getBaseUrl();
+  const allTokens: Map<string, TokenData> = new Map();
+
+  // Phase 1: Fetch top 1000 tokens by market cap (4 pages of 250)
+  const PAGES = 4;
+  const PER_PAGE = 250;
+
+  for (let page = 1; page <= PAGES; page++) {
+    try {
+      const url = `${base}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${PER_PAGE}&page=${page}&sparkline=false&price_change_percentage=24h,7d,30d`;
+
+      const data = (await fetchJSON(url)) as Record<string, unknown>[];
+      if (!Array.isArray(data)) break;
+
+      for (const coin of data) {
+        const token = parseToken(coin);
+        if (token.id && !allTokens.has(token.id)) {
+          allTokens.set(token.id, token);
+        }
+      }
+
+      // If we got fewer than PER_PAGE results, no more pages
+      if (data.length < PER_PAGE) break;
+
+      // Rate limit between pages
+      if (page < PAGES) await delay(150);
+    } catch (err) {
+      console.warn(`[/api/coingecko] Failed to fetch page ${page}:`, err instanceof Error ? err.message : err);
+      break; // Don't fail entirely, just stop pagination
+    }
+  }
+
+  // Phase 2: Fetch specific protocol tokens from our mapping that aren't in top 1000
+  const mappedIds = getExpandedTokenIds();
+  const missingIds = mappedIds.filter(id => !allTokens.has(id));
+
+  if (missingIds.length > 0) {
+    try {
+      await delay(150);
+      const ids = missingIds.join(",");
+      const url = `${base}/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&per_page=250&page=1&sparkline=false&price_change_percentage=24h,7d,30d`;
+
+      const data = (await fetchJSON(url)) as Record<string, unknown>[];
+      if (Array.isArray(data)) {
+        for (const coin of data) {
+          const token = parseToken(coin);
+          if (token.id && !allTokens.has(token.id)) {
+            allTokens.set(token.id, token);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[/api/coingecko] Failed to fetch supplementary tokens:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  return Array.from(allTokens.values());
 }
 
 async function fetchHistoricalMarketCap(): Promise<HistoricalMarketCapEntry[]> {

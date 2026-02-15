@@ -56,16 +56,30 @@ const CATEGORY_GROUP: Record<string, string> = {
   Bridge: "DeFi",
   CDP: "DeFi",
   Options: "DeFi",
+  Insurance: "DeFi",
+  Liquidations: "DeFi",
+  "Leveraged Farming": "DeFi",
   Stablecoins: "Stablecoins",
   Exchanges: "Exchanges",
   CEX: "Exchanges",
   Blockchains: "Blockchains",
   Chain: "Blockchains",
+  EVM: "Blockchains",
   "EVM Compatible": "Blockchains",
+  Rollup: "Blockchains",
   Consumer: "Consumer",
   NFT: "Consumer",
+  "NFT Marketplace": "Consumer",
+  "NFT Lending": "Consumer",
   Gaming: "Consumer",
   Social: "Consumer",
+  "Prediction Market": "Consumer",
+  Launchpad: "Consumer",
+  Wallet: "Consumer",
+  DePIN: "Other",
+  Middleware: "Other",
+  Oracle: "Other",
+  Other: "Other",
 };
 
 function getCategoryGroup(category: string): string {
@@ -394,6 +408,9 @@ export default function Section6Protocols() {
   const [activeFilter, setActiveFilter] = useState<FilterCategory>("All");
   const [tokenFilter, setTokenFilter] = useState<"all" | "token" | "no-token">("all");
   const [viewMode, setViewMode] = useState<"flat" | "tree">("flat");
+  const [topN, setTopN] = useState<number>(0); // 0 = show all
+  const [currentPage, setCurrentPage] = useState(1);
+  const ROWS_PER_PAGE = 100;
 
   // -----------------------------------------------------------------------
   // Merge data from all sources
@@ -406,11 +423,32 @@ export default function Section6Protocols() {
     const tvlProtocols = tvl?.topProtocols ?? [];
     const earningsProtocols = earnings?.protocols ?? [];
 
-    // Sort by total24h descending, take top 50
+    // Sort by total24h descending - show ALL protocols with revenue
     const sorted = [...protocols]
       .filter((p) => p.total24h > 0)
-      .sort((a, b) => b.total24h - a.total24h)
-      .slice(0, 50);
+      .sort((a, b) => b.total24h - a.total24h);
+
+    // Build lookup indexes for O(1) matching
+    const tokenById = new Map<string, typeof tokens[0]>();
+    const tokenByNameLower = new Map<string, typeof tokens[0]>();
+    const tokenBySymbolLower = new Map<string, typeof tokens[0]>();
+    for (const t of tokens) {
+      tokenById.set(t.id.toLowerCase(), t);
+      tokenByNameLower.set(t.name.toLowerCase(), t);
+      if (t.symbol) tokenBySymbolLower.set(t.symbol.toLowerCase(), t);
+    }
+
+    const tvlByName = new Map<string, typeof tvlProtocols[0]>();
+    for (const t of tvlProtocols) {
+      tvlByName.set(t.name.toLowerCase(), t);
+    }
+
+    const earningsByName = new Map<string, typeof earningsProtocols[0]>();
+    const earningsById = new Map<string, typeof earningsProtocols[0]>();
+    for (const e of earningsProtocols) {
+      earningsByName.set(e.name.toLowerCase(), e);
+      earningsById.set(e.id.toLowerCase(), e);
+    }
 
     return sorted.map((p: LiveProtocolFee, idx: number) => {
       const nameLower = p.name.toLowerCase();
@@ -419,31 +457,18 @@ export default function Section6Protocols() {
       // Use central mapping for deterministic token matching
       const mapping = findProtocolMapping(p.name);
 
-      // Match CoinGecko token - prefer mapping, fall back to name matching
+      // Match CoinGecko token - prefer mapping, fall back to name matching (O(1) lookups)
       const tokenMatch = mapping?.coinGeckoId
-        ? tokens.find(t => t.id === mapping.coinGeckoId)
-        : tokens.find(
-            (t) =>
-              t.name.toLowerCase() === nameLower ||
-              t.id.toLowerCase() === nameLower ||
-              t.name.toLowerCase() === displayLower ||
-              t.id.toLowerCase() === displayLower
-          );
+        ? tokenById.get(mapping.coinGeckoId.toLowerCase())
+        : (tokenByNameLower.get(nameLower) || tokenById.get(nameLower) || tokenByNameLower.get(displayLower) || tokenById.get(displayLower) || tokenBySymbolLower.get(nameLower));
 
       const hasToken = mapping ? mapping.hasToken : (tokenMatch != null);
 
-      // Match TVL
-      const tvlMatch = tvlProtocols.find(
-        (t) => t.name.toLowerCase() === nameLower || t.name.toLowerCase() === displayLower
-      );
+      // Match TVL (O(1) lookup)
+      const tvlMatch = tvlByName.get(nameLower) || tvlByName.get(displayLower);
 
-      // Match earnings
-      const earningsMatch = earningsProtocols.find(
-        (e) =>
-          e.name.toLowerCase() === nameLower ||
-          e.id.toLowerCase() === nameLower ||
-          e.name.toLowerCase() === displayLower
-      );
+      // Match earnings (O(1) lookup)
+      const earningsMatch = earningsByName.get(nameLower) || earningsById.get(nameLower) || earningsByName.get(displayLower);
 
       const revenueAnn = p.total24h * 365;
       const marketCap = tokenMatch?.marketCap ?? null;
@@ -499,8 +524,26 @@ export default function Section6Protocols() {
     } else if (tokenFilter === "no-token") {
       result = result.filter(p => !p.hasToken);
     }
+    // Apply top-N filter (already sorted by revenue desc)
+    if (topN > 0) {
+      result = result.slice(0, topN);
+    }
     return result;
-  }, [mergedProtocols, activeFilter, tokenFilter]);
+  }, [mergedProtocols, activeFilter, tokenFilter, topN]);
+
+  // -----------------------------------------------------------------------
+  // Pagination for flat table
+  // -----------------------------------------------------------------------
+  const totalPages = Math.ceil(filteredProtocols.length / ROWS_PER_PAGE);
+  const paginatedProtocols = useMemo(() => {
+    const start = (currentPage - 1) * ROWS_PER_PAGE;
+    return filteredProtocols.slice(start, start + ROWS_PER_PAGE);
+  }, [filteredProtocols, currentPage, ROWS_PER_PAGE]);
+
+  // Reset to page 1 when filters change
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [activeFilter, tokenFilter, topN]);
 
   // -----------------------------------------------------------------------
   // Scatter data: Revenue vs Market Cap
@@ -575,7 +618,7 @@ export default function Section6Protocols() {
     return mergedProtocols
       .filter((p) => p.change7d != null)
       .sort((a, b) => Math.abs(b.change7d ?? 0) - Math.abs(a.change7d ?? 0))
-      .slice(0, 40);
+      .slice(0, 60);
   }, [mergedProtocols]);
 
   // CSV export data for table
@@ -632,7 +675,7 @@ export default function Section6Protocols() {
       <SectionHeader
         number="6"
         title="Protocol Explorer"
-        subtitle="A comprehensive view of protocol-level economics. Compare revenue, valuations, capital efficiency, and momentum across the top 50 fee-generating protocols."
+        subtitle="A comprehensive view of protocol-level economics. Compare revenue, valuations, capital efficiency, and momentum across all fee-generating protocols."
       />
 
       {/* ================================================================ */}
@@ -653,7 +696,7 @@ export default function Section6Protocols() {
             className="mb-4"
             style={{ fontSize: "14px", color: "#666666", lineHeight: "1.5" }}
           >
-            Top 50 protocols ranked by 24h revenue, merged with market cap, TVL, and earnings data.
+            All protocols ranked by 24h revenue, merged with market cap, TVL, and earnings data.
           </p>
 
           {/* Category filter row */}
@@ -681,8 +724,8 @@ export default function Section6Protocols() {
             ))}
           </div>
 
-          {/* Token filter row */}
-          <div className="flex flex-wrap gap-2 mb-4">
+          {/* Token filter + Top-N row */}
+          <div className="flex flex-wrap gap-2 mb-4 items-center">
             {(["all", "token", "no-token"] as const).map((f) => (
               <button
                 key={f}
@@ -702,6 +745,30 @@ export default function Section6Protocols() {
                 }}
               >
                 {f === "all" ? "All Projects" : f === "token" ? "Token" : "No Token"}
+              </button>
+            ))}
+
+            <span style={{ width: 1, height: 20, backgroundColor: "#d4d4d4", margin: "0 4px" }} />
+
+            {([0, 10, 25, 50, 100, 250] as const).map((n) => (
+              <button
+                key={n}
+                onClick={() => setTopN(n)}
+                className="px-3 py-1.5 transition-colors duration-150"
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase" as const,
+                  border: "1px solid",
+                  borderColor: topN === n ? "#111111" : "#d4d4d4",
+                  backgroundColor: topN === n ? "#111111" : "#ffffff",
+                  color: topN === n ? "#ffffff" : "#666666",
+                  borderRadius: 0,
+                  cursor: "pointer",
+                }}
+              >
+                {n === 0 ? "All" : `Top ${n}`}
               </button>
             ))}
           </div>
@@ -774,7 +841,7 @@ export default function Section6Protocols() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredProtocols.map((p) => (
+                  {paginatedProtocols.map((p) => (
                     <tr key={p.name}>
                       <td style={{ textAlign: "left", color: "#999999" }}>{p.rank}</td>
                       <td style={{ textAlign: "left" }}>
@@ -924,6 +991,52 @@ export default function Section6Protocols() {
                   )}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {viewMode === "flat" && totalPages > 1 && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16, padding: "8px 0", borderTop: "1px solid #e8e8e8" }}>
+              <span style={{ fontSize: "12px", color: "#666666" }}>
+                Showing {((currentPage - 1) * ROWS_PER_PAGE) + 1}&ndash;{Math.min(currentPage * ROWS_PER_PAGE, filteredProtocols.length)} of {filteredProtocols.length} protocols
+              </span>
+              <div style={{ display: "flex", gap: 4 }}>
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  style={{
+                    padding: "4px 12px",
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    border: "1px solid #d4d4d4",
+                    backgroundColor: currentPage === 1 ? "#f5f5f5" : "#ffffff",
+                    color: currentPage === 1 ? "#999999" : "#333333",
+                    cursor: currentPage === 1 ? "default" : "pointer",
+                    borderRadius: 0,
+                  }}
+                >
+                  Previous
+                </button>
+                <span style={{ padding: "4px 8px", fontSize: "12px", color: "#666666", alignSelf: "center" }}>
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  style={{
+                    padding: "4px 12px",
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    border: "1px solid #d4d4d4",
+                    backgroundColor: currentPage === totalPages ? "#f5f5f5" : "#ffffff",
+                    color: currentPage === totalPages ? "#999999" : "#333333",
+                    cursor: currentPage === totalPages ? "default" : "pointer",
+                    borderRadius: 0,
+                  }}
+                >
+                  Next
+                </button>
+              </div>
             </div>
           )}
         </ChartExport>

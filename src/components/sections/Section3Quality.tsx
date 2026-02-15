@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   AreaChart,
   Area,
@@ -19,7 +19,8 @@ import {
   Line,
   TooltipProps,
 } from "recharts";
-import { useDataContext, groupByCategory } from "@/lib/DataContext";
+import { useDataContext, groupByCategory, LiveProtocolFee } from "@/lib/DataContext";
+import { findProtocolMapping } from "@/lib/protocolTokenMap";
 import { ChartExport } from "@/components/ui/ChartExport";
 import {
   sectorBreakdownTimeSeries,
@@ -297,12 +298,340 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Compact currency formatter
+// ---------------------------------------------------------------------------
+
+function formatCompactValue(value: number | null | undefined): string {
+  if (value == null || !isFinite(value)) return "\u2014";
+  const abs = Math.abs(value);
+  if (abs >= 1e12) return `$${(value / 1e12).toFixed(1)}T`;
+  if (abs >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
+  return `$${value.toFixed(0)}`;
+}
+
+function formatPctValue(value: number | null | undefined): string {
+  if (value == null || !isFinite(value)) return "\u2014";
+  const sign = value >= 0 ? "+" : "";
+  return `${sign}${value.toFixed(1)}%`;
+}
+
+// ---------------------------------------------------------------------------
+// Sector Drill-Down: constituent projects per sector with P&L, FDV
+// ---------------------------------------------------------------------------
+
+interface SectorProtocol {
+  name: string;
+  displayName: string;
+  revenue24h: number;
+  revenue30d: number;
+  revenueAnn: number;
+  marketCap: number | null;
+  fdv: number | null;
+  earnings: number | null;
+  margin: number | null;
+  change7d: number | null;
+  sector: string;
+}
+
+interface SectorSummary {
+  sector: string;
+  sectorLabel: string;
+  color: string;
+  protocols: SectorProtocol[];
+  totalRevAnn: number;
+  totalFdv: number;
+  totalMcap: number;
+  protocolCount: number;
+}
+
+function SectorDrillDown({
+  protocols,
+  coinGeckoTokens,
+  earningsProtocols,
+  topN,
+}: {
+  protocols: LiveProtocolFee[];
+  coinGeckoTokens: Array<{
+    id: string;
+    symbol: string;
+    name: string;
+    currentPrice: number;
+    marketCap: number;
+    fullyDilutedValuation: number | null;
+    totalVolume24h: number;
+  }>;
+  earningsProtocols: Array<{
+    id: string;
+    name: string;
+    latestRevenue: number;
+    latestEarnings: number;
+    margin: number;
+  }>;
+  topN: number;
+}) {
+  const [expandedSectors, setExpandedSectors] = useState<Set<string>>(new Set());
+
+  const sectorData = useMemo(() => {
+    // Build lookup maps
+    const tokenById = new Map<string, (typeof coinGeckoTokens)[0]>();
+    const tokenByName = new Map<string, (typeof coinGeckoTokens)[0]>();
+    for (const t of coinGeckoTokens) {
+      tokenById.set(t.id.toLowerCase(), t);
+      tokenByName.set(t.name.toLowerCase(), t);
+    }
+    const earningsByName = new Map<string, (typeof earningsProtocols)[0]>();
+    for (const e of earningsProtocols) {
+      earningsByName.set(e.name.toLowerCase(), e);
+    }
+
+    // Group protocols by sector
+    const sectorMap = new Map<string, SectorProtocol[]>();
+    for (const p of protocols) {
+      if (p.total24h <= 0) continue;
+      const sector = mapCategoryToSector(p.category || "Other");
+      const mapping = findProtocolMapping(p.name);
+      const tokenMatch = mapping?.coinGeckoId
+        ? tokenById.get(mapping.coinGeckoId.toLowerCase())
+        : (tokenByName.get(p.name.toLowerCase()) || tokenById.get(p.name.toLowerCase()) || tokenByName.get((p.displayName || "").toLowerCase()));
+      const earningsMatch = earningsByName.get(p.name.toLowerCase()) || earningsByName.get((p.displayName || "").toLowerCase());
+
+      const sp: SectorProtocol = {
+        name: p.name,
+        displayName: p.displayName || p.name,
+        revenue24h: p.total24h,
+        revenue30d: p.total30d || 0,
+        revenueAnn: p.total24h * 365,
+        marketCap: tokenMatch?.marketCap ?? null,
+        fdv: tokenMatch?.fullyDilutedValuation ?? null,
+        earnings: earningsMatch?.latestEarnings ?? null,
+        margin: earningsMatch?.margin ?? null,
+        change7d: p.change_7d,
+        sector,
+      };
+
+      if (!sectorMap.has(sector)) sectorMap.set(sector, []);
+      sectorMap.get(sector)!.push(sp);
+    }
+
+    // Build summaries
+    const summaries: SectorSummary[] = [];
+    const sectorLabelMap: Record<string, string> = {
+      defi: "DeFi",
+      exchanges: "Exchanges",
+      stablecoins: "Stablecoins",
+      blockchains: "Blockchains",
+      consumer: "Consumer",
+      wallets: "Wallets",
+      depin: "DePIN",
+      other: "Other",
+    };
+
+    for (const [sector, protos] of sectorMap.entries()) {
+      // Sort by revenue desc
+      protos.sort((a, b) => b.revenue24h - a.revenue24h);
+      // Apply topN
+      const displayed = topN > 0 ? protos.slice(0, topN) : protos;
+
+      summaries.push({
+        sector,
+        sectorLabel: sectorLabelMap[sector] || sector,
+        color: SECTOR_COLORS[sector] || "#94a3b8",
+        protocols: displayed,
+        totalRevAnn: displayed.reduce((s, p) => s + p.revenueAnn, 0),
+        totalFdv: displayed.reduce((s, p) => s + (p.fdv ?? 0), 0),
+        totalMcap: displayed.reduce((s, p) => s + (p.marketCap ?? 0), 0),
+        protocolCount: protos.length,
+      });
+    }
+
+    // Sort sectors by total revenue desc
+    summaries.sort((a, b) => b.totalRevAnn - a.totalRevAnn);
+    return summaries;
+  }, [protocols, coinGeckoTokens, earningsProtocols, topN]);
+
+  const toggleSector = (sector: string) => {
+    setExpandedSectors((prev) => {
+      const next = new Set(prev);
+      if (next.has(sector)) next.delete(sector);
+      else next.add(sector);
+      return next;
+    });
+  };
+
+  const grandTotalFdv = sectorData.reduce((s, sec) => s + sec.totalFdv, 0);
+  const grandTotalRevAnn = sectorData.reduce((s, sec) => s + sec.totalRevAnn, 0);
+
+  return (
+    <div>
+      {/* Grand total row */}
+      <div style={{ display: "flex", gap: 16, marginBottom: 12, padding: "8px 0", borderBottom: "2px solid #111111" }}>
+        <div style={{ flex: 1 }}>
+          <span style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>
+            Total FDV (All Sectors)
+          </span>
+          <p style={{ fontSize: "20px", fontWeight: 700, fontFamily: "Georgia, serif", color: "#111111", marginTop: 2 }}>
+            {formatCompactValue(grandTotalFdv)}
+          </p>
+        </div>
+        <div style={{ flex: 1 }}>
+          <span style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>
+            Total Revenue (Ann.)
+          </span>
+          <p style={{ fontSize: "20px", fontWeight: 700, fontFamily: "Georgia, serif", color: "#111111", marginTop: 2 }}>
+            {formatCompactValue(grandTotalRevAnn)}
+          </p>
+        </div>
+        <div style={{ flex: 1 }}>
+          <span style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>
+            Implied P/S (FDV)
+          </span>
+          <p style={{ fontSize: "20px", fontWeight: 700, fontFamily: "Georgia, serif", color: "#111111", marginTop: 2 }}>
+            {grandTotalRevAnn > 0 ? `${(grandTotalFdv / grandTotalRevAnn).toFixed(1)}x` : "\u2014"}
+          </p>
+        </div>
+      </div>
+
+      {/* Sector rows */}
+      {sectorData.map((sec) => (
+        <div key={sec.sector} style={{ marginBottom: 2 }}>
+          {/* Sector header (clickable) */}
+          <button
+            onClick={() => toggleSector(sec.sector)}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "10px 8px",
+              backgroundColor: expandedSectors.has(sec.sector) ? "#f8f9fa" : "#ffffff",
+              border: "none",
+              borderBottom: "1px solid #e8e8e8",
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: "14px", color: "#666666", width: 16, textAlign: "center" }}>
+                {expandedSectors.has(sec.sector) ? "\u25BC" : "\u25B6"}
+              </span>
+              <span
+                style={{ width: 10, height: 10, backgroundColor: sec.color, display: "inline-block", flexShrink: 0 }}
+              />
+              <span style={{ fontSize: "14px", fontWeight: 700, color: "#111111", fontFamily: "Georgia, serif" }}>
+                {sec.sectorLabel}
+              </span>
+              <span style={{ fontSize: "12px", color: "#999999" }}>
+                ({sec.protocolCount} project{sec.protocolCount !== 1 ? "s" : ""})
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 24, fontSize: "13px", fontVariantNumeric: "tabular-nums" }}>
+              <span style={{ minWidth: 90, textAlign: "right" }}>
+                <span style={{ color: "#999999", fontSize: "10px", marginRight: 4 }}>REV</span>
+                <span style={{ fontWeight: 600, color: "#111111" }}>{formatCompactValue(sec.totalRevAnn)}</span>
+              </span>
+              <span style={{ minWidth: 90, textAlign: "right" }}>
+                <span style={{ color: "#999999", fontSize: "10px", marginRight: 4 }}>FDV</span>
+                <span style={{ fontWeight: 600, color: "#111111" }}>{formatCompactValue(sec.totalFdv)}</span>
+              </span>
+              <span style={{ minWidth: 70, textAlign: "right" }}>
+                <span style={{ color: "#999999", fontSize: "10px", marginRight: 4 }}>P/S</span>
+                <span style={{ fontWeight: 600, color: "#111111" }}>
+                  {sec.totalRevAnn > 0 && sec.totalFdv > 0
+                    ? `${(sec.totalFdv / sec.totalRevAnn).toFixed(1)}x`
+                    : "\u2014"}
+                </span>
+              </span>
+            </div>
+          </button>
+
+          {/* Expanded protocol table */}
+          {expandedSectors.has(sec.sector) && (
+            <div style={{ backgroundColor: "#fafafa", borderBottom: "1px solid #e8e8e8" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid #d4d4d4" }}>
+                    <th style={{ textAlign: "left", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Protocol</th>
+                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Rev (24h)</th>
+                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Rev (30d)</th>
+                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Rev (Ann.)</th>
+                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Market Cap</th>
+                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>FDV</th>
+                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Earnings</th>
+                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Margin</th>
+                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>7d</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sec.protocols.map((p, idx) => (
+                    <tr
+                      key={p.name}
+                      style={{
+                        borderBottom: "1px solid #f0f0f0",
+                        backgroundColor: idx % 2 === 0 ? "#fafafa" : "#ffffff",
+                      }}
+                    >
+                      <td style={{ padding: "6px 8px", fontWeight: 600, color: "#111111" }}>
+                        <a
+                          href={`/protocol/${p.name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}`}
+                          style={{ color: "#111111", textDecoration: "none" }}
+                          onMouseOver={(e) => (e.currentTarget.style.color = "#0274B6")}
+                          onMouseOut={(e) => (e.currentTarget.style.color = "#111111")}
+                        >
+                          {p.displayName}
+                        </a>
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", fontVariantNumeric: "tabular-nums" }}>
+                        {formatCompactValue(p.revenue24h)}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", fontVariantNumeric: "tabular-nums" }}>
+                        {formatCompactValue(p.revenue30d)}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+                        {formatCompactValue(p.revenueAnn)}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", fontVariantNumeric: "tabular-nums" }}>
+                        {formatCompactValue(p.marketCap)}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", fontVariantNumeric: "tabular-nums" }}>
+                        {formatCompactValue(p.fdv)}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", fontVariantNumeric: "tabular-nums" }}>
+                        {formatCompactValue(p.earnings)}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", fontVariantNumeric: "tabular-nums", color: p.margin != null && p.margin >= 0 ? "#2e7d32" : "#9e2b25" }}>
+                        {p.margin != null ? `${(p.margin * 100).toFixed(0)}%` : "\u2014"}
+                      </td>
+                      <td style={{
+                        textAlign: "right",
+                        padding: "6px 8px",
+                        fontVariantNumeric: "tabular-nums",
+                        fontWeight: 500,
+                        color: p.change7d == null ? "#999999" : p.change7d >= 0 ? "#2e7d32" : "#9e2b25",
+                      }}>
+                        {formatPctValue(p.change7d)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
 export default function Section3Quality() {
   const ctx = useDataContext();
   const hasLiveFees = !!(ctx.fees?.protocols && ctx.fees.protocols.length > 0);
+  const [sectorTopN, setSectorTopN] = useState<number>(0); // 0 = all
 
   // ----- Live data: group protocols by DefiLlama category -----
   const liveCategoryGroups = useMemo(() => {
@@ -704,6 +1033,58 @@ export default function Section3Quality() {
 
           <DataSource sources={["DefiLlama (live)", "TokenTerminal (live)"]} />
         </Card>
+
+        {/* ---------------------------------------------------------------- */}
+        {/* 1b. Sector Drill-Down — Constituent Projects with P&L + FDV      */}
+        {/* ---------------------------------------------------------------- */}
+        {hasLiveFees && (
+          <Card className="mb-10">
+            <h3 className="text-lg font-bold text-slate-900 mb-1" style={{ fontFamily: "Georgia, serif" }}>
+              Sector Revenue Drill-Down
+            </h3>
+            <p className="text-sm text-slate-500 mb-4">
+              Click any sector to see constituent projects with revenue, earnings, margin, and FDV.
+              {ctx.coinGecko?.tokens && <span className="text-emerald-500 ml-1">(FDV from CoinGecko live)</span>}
+            </p>
+
+            {/* Top-N filter */}
+            <div className="flex flex-wrap gap-2 mb-4 items-center">
+              <span style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999", marginRight: 4 }}>
+                Show:
+              </span>
+              {([0, 10, 25, 50, 100] as const).map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setSectorTopN(n)}
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase" as const,
+                    border: "1px solid",
+                    borderColor: sectorTopN === n ? "#111111" : "#d4d4d4",
+                    backgroundColor: sectorTopN === n ? "#111111" : "#ffffff",
+                    color: sectorTopN === n ? "#ffffff" : "#666666",
+                    borderRadius: 0,
+                    cursor: "pointer",
+                    padding: "4px 10px",
+                  }}
+                >
+                  {n === 0 ? "All" : `Top ${n}`}
+                </button>
+              ))}
+            </div>
+
+            <SectorDrillDown
+              protocols={ctx.fees!.protocols}
+              coinGeckoTokens={ctx.coinGecko?.tokens ?? []}
+              earningsProtocols={ctx.earnings?.protocols ?? []}
+              topN={sectorTopN}
+            />
+
+            <DataSource sources={["DefiLlama (live)", "CoinGecko (live)", "TokenTerminal (live)"]} />
+          </Card>
+        )}
 
         {/* ---------------------------------------------------------------- */}
         {/* 2. Pie / Donut — Sector Breakdown (live or H1 2025 static)       */}

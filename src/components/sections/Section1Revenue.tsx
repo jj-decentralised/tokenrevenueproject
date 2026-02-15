@@ -216,9 +216,11 @@ export default function Section1Revenue() {
         : latest.totalRevenue;
 
     const revenueExStable =
-      ctx.fees?.totalRevenue24h != null
+      ctx.fees?.totalRevenue24h != null && ctx.fees.totalRevenue24h > 0
         ? (ctx.fees.totalRevenue24h * 365) / 1e9
-        : latest.revenueExStablecoins;
+        : ctx.fees?.totalFees24h != null && ctx.fees.totalFees24h > 0
+          ? (ctx.fees.totalFees24h * 365 * 0.65) / 1e9  // estimate ex-stablecoins as 65% of total fees
+          : latest.revenueExStablecoins;
 
     const yoyGrowth = (
       ((totalRevAnnualized - prior.totalRevenue) / prior.totalRevenue) *
@@ -404,29 +406,29 @@ export default function Section1Revenue() {
               label="Total Revenue (Ann.)"
               value={formatDollar(headlineStats.totalRevAnnualized)}
               subvalue={headlineStats.quarter}
-              change={`+${headlineStats.yoyGrowth}% YoY`}
-              changeType="positive"
+              change={`${Number(headlineStats.yoyGrowth) >= 0 ? "+" : ""}${headlineStats.yoyGrowth}% YoY`}
+              changeType={Number(headlineStats.yoyGrowth) >= 0 ? "positive" : "negative"}
             />
             <StatCard
               label="Revenue ex-Stablecoins"
               value={formatDollar(headlineStats.revenueExStable)}
               subvalue="Native protocol fees only"
-              change={`+${headlineStats.yoyGrowthExStable}% YoY`}
-              changeType="positive"
+              change={`${Number(headlineStats.yoyGrowthExStable) >= 0 ? "+" : ""}${headlineStats.yoyGrowthExStable}% YoY`}
+              changeType={Number(headlineStats.yoyGrowthExStable) >= 0 ? "positive" : "negative"}
             />
             <StatCard
               label="YoY Revenue Growth"
-              value={`${headlineStats.yoyGrowth}%`}
+              value={`${Number(headlineStats.yoyGrowth) >= 0 ? "+" : ""}${headlineStats.yoyGrowth}%`}
               subvalue="Total revenue basis"
               change="Accelerating from +155% in 2024"
-              changeType="positive"
+              changeType={Number(headlineStats.yoyGrowth) >= 0 ? "positive" : "negative"}
             />
             <StatCard
               label="Protocols Generating Fees"
               value={headlineStats.protocolCount.toLocaleString()}
               subvalue="Unique fee-generating protocols"
-              change={`+${headlineStats.protocolCountGrowth}% YoY`}
-              changeType="positive"
+              change={`${Number(headlineStats.protocolCountGrowth) >= 0 ? "+" : ""}${headlineStats.protocolCountGrowth}% YoY`}
+              changeType={Number(headlineStats.protocolCountGrowth) >= 0 ? "positive" : "negative"}
             />
           </>
         )}
