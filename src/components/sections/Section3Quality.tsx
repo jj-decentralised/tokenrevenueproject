@@ -21,6 +21,7 @@ import {
 } from "recharts";
 import { useDataContext, groupByCategory, LiveProtocolFee } from "@/lib/DataContext";
 import { findProtocolMapping } from "@/lib/protocolTokenMap";
+import { getCategoryGroup } from "@/lib/categories";
 import { ChartExport } from "@/components/ui/ChartExport";
 import {
   sectorBreakdownTimeSeries,
@@ -1119,41 +1120,54 @@ export default function Section3Quality() {
     return base;
   }, [hasLiveFees, ctx.fees]);
 
-  // ----- Live stat cards: compute from live data when available -----
+  // ----- Live stat cards: compute from live data using resolved sectors -----
   const liveStats = useMemo(() => {
-    if (!liveCategoryGroups) {
+    if (!hasLiveFees || !ctx.fees?.protocols) {
       return null; // Will use static values
     }
 
-    // Total across all sectors
-    const allTotal30d = Object.values(liveCategoryGroups).reduce(
-      (s, g) => s + g.total30d,
-      0
-    );
-
-    // Stablecoins share
-    const stablecoinTotal = liveCategoryGroups["Stablecoins"]?.total30d ?? 0;
-    const stablecoinShare = allTotal30d > 0 ? Math.round((stablecoinTotal / allTotal30d) * 100) : 0;
-
-    // DEX vs CEX
-    const dexTotal =
-      (liveCategoryGroups["Dexes"]?.total30d ?? 0) +
-      (liveCategoryGroups["Derivatives"]?.total30d ?? 0);
-    const cexTotal = liveCategoryGroups["CEX"]?.total30d ?? 0;
-    const exchangeTotal = dexTotal + cexTotal;
-    const dexShare = exchangeTotal > 0 ? Math.round((dexTotal / exchangeTotal) * 100) : 55;
-
-    // Consumer share
+    const protocols = ctx.fees.protocols;
+    let allTotal30d = 0;
+    let stablecoinTotal = 0;
+    let dexTotal = 0;
+    let cexTotal = 0;
     let consumerTotal = 0;
-    for (const [cat, data] of Object.entries(liveCategoryGroups)) {
-      if (mapCategoryToSector(cat) === "consumer") {
-        consumerTotal += data.total30d;
+
+    for (const p of protocols) {
+      const val30d = p.total30d || 0;
+      if (val30d <= 0) continue;
+      allTotal30d += val30d;
+
+      const slug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+      const sector = getCategoryGroup(p.category || "Other", slug);
+      const rawCat = (p.category || "").toLowerCase();
+
+      if (sector === "Stablecoins") {
+        stablecoinTotal += val30d;
+      } else if (sector === "Consumer") {
+        consumerTotal += val30d;
+      } else if (sector === "Exchanges") {
+        // Check if DEX or CEX
+        if (rawCat === "cex" || rawCat === "exchanges") {
+          cexTotal += val30d;
+        } else {
+          dexTotal += val30d;
+        }
+      } else if (sector === "DeFi") {
+        // DEX-like categories count toward dexTotal for DEX vs CEX
+        if (["dexs", "dexes", "dex", "dex aggregator", "amm", "derivatives", "perpetuals"].includes(rawCat)) {
+          dexTotal += val30d;
+        }
       }
     }
+
+    const stablecoinShare = allTotal30d > 0 ? Math.round((stablecoinTotal / allTotal30d) * 100) : 0;
+    const exchangeTotal = dexTotal + cexTotal;
+    const dexShare = exchangeTotal > 0 ? Math.round((dexTotal / exchangeTotal) * 100) : 55;
     const consumerShare = allTotal30d > 0 ? Math.round((consumerTotal / allTotal30d) * 100) : 6;
 
     return { stablecoinShare, dexShare, consumerShare };
-  }, [liveCategoryGroups]);
+  }, [hasLiveFees, ctx.fees]);
 
   // Stablecoin + rate data — editorial/static (interest income breakdowns not in DefiLlama)
   const stablecoinData = useMemo(

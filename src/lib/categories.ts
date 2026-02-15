@@ -143,7 +143,7 @@ export const CATEGORY_GROUP: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 export const PROTOCOL_CATEGORY_OVERRIDES: Record<string, string> = {
-  // DEXes / AMMs
+  // ── DEXes / AMMs ──
   "pancakeswap": "Dexs",
   "pancakeswap-amm": "Dexs",
   "pancakeswap-amm-v3": "Dexs",
@@ -169,8 +169,42 @@ export const PROTOCOL_CATEGORY_OVERRIDES: Record<string, string> = {
   "maverick-protocol": "Dexs",
   "ambient-finance": "Dexs",
   "meteora": "Dexs",
+  "pumpswap": "Dexs",
+  "pumpswap-amm": "Dexs",
+  "curve-finance": "Dexs",
+  "curve": "Dexs",
+  "curve-dex": "Dexs",
+  "kyberswap": "DEX Aggregator",
+  "openocean": "DEX Aggregator",
+  "odos": "DEX Aggregator",
+  "cow-protocol": "DEX Aggregator",
+  "cowswap": "DEX Aggregator",
+  "bebop": "DEX Aggregator",
+  "hashflow": "Dexs",
+  "lifinity": "Dexs",
+  "phoenix": "Dexs",
+  "cetus": "Dexs",
+  "turbos-finance": "Dexs",
+  "aftermath-finance": "Dexs",
+  "deepbook": "Dexs",
+  "thruster": "Dexs",
+  "shadedex": "Dexs",
+  "baseswap": "Dexs",
+  "swapblast": "Dexs",
+  "syncswap": "Dexs",
+  "spacefi": "Dexs",
+  "wagmi": "Dexs",
+  "kim-exchange": "Dexs",
+  "nile-exchange": "Dexs",
+  "clober": "Dexs",
+  "ekubo": "Dexs",
+  "jediswap": "Dexs",
+  "10kswap": "Dexs",
+  "myswap": "Dexs",
+  "avnu": "DEX Aggregator",
+  "fibrous-finance": "DEX Aggregator",
 
-  // Perps / Derivatives
+  // ── Perps / Derivatives ──
   "hyperliquid": "Perpetuals",
   "gmx": "Perpetuals",
   "gmx-v2": "Perpetuals",
@@ -184,17 +218,53 @@ export const PROTOCOL_CATEGORY_OVERRIDES: Record<string, string> = {
   "synthetix": "Derivatives",
   "polymarket": "Prediction Market",
   "azuro": "Prediction Market",
+  "aevo": "Derivatives",
+  "aevo-exchange": "Derivatives",
+  "rabbitx": "Perpetuals",
+  "bluefin": "Perpetuals",
+  "zeta-markets": "Perpetuals",
+  "mux-protocol": "Perpetuals",
+  "perennial": "Perpetuals",
+  "hmx": "Perpetuals",
+  "apex-protocol": "Perpetuals",
+  "kiloex": "Perpetuals",
+  "holdstation": "Perpetuals",
+  "orderly-network": "Perpetuals",
+  "kine-finance": "Perpetuals",
+  "level-finance": "Perpetuals",
+  "unidex": "Perpetuals",
+  "lyra-finance": "Options",
+  "predy-finance": "Derivatives",
+  "flash-trade": "Perpetuals",
+  "drift": "Perpetuals",
 
-  // Wallets
+  // ── Wallets / Trading Bots ──
   "metamask": "Wallet",
   "metamask-swap": "Wallet",
   "phantom": "Wallet",
   "phantom-swap": "Wallet",
+  "phantom-wallet": "Wallet",
   "rabby-swap": "Wallet",
   "coinbase-wallet": "Wallet",
   "trust-wallet-swap": "Wallet",
+  "banana-gun": "Wallet",
+  "maestro": "Wallet",
+  "photon": "Wallet",
+  "bonkbot": "Wallet",
+  "trojan": "Wallet",
+  "axiom": "Wallet",
+  "bull-x": "Wallet",
+  "bullx": "Wallet",
+  "gmgn": "Wallet",
+  "nova": "Wallet",
+  "sol-trading-bot": "Wallet",
+  "bloom": "Wallet",
+  "defined": "Wallet",
+  "bifrost-wallet": "Wallet",
+  "okx-wallet": "Wallet",
+  "bitget-wallet": "Wallet",
 
-  // Liquid Staking / MEV
+  // ── Liquid Staking / Restaking / MEV ──
   "jito": "MEV",
   "jito-tips": "MEV",
   "lido": "Liquid Staking",
@@ -203,8 +273,35 @@ export const PROTOCOL_CATEGORY_OVERRIDES: Record<string, string> = {
   "eigenpie": "Liquid Restaking",
   "marinade-finance": "Liquid Staking",
   "coinbase-wrapped-staked-eth": "Liquid Staking",
+  "ether.fi": "Liquid Restaking",
+  "etherfi": "Liquid Restaking",
+  "ether.fi-liquid": "Liquid Restaking",
+  "ether.fi-stake": "Liquid Restaking",
+  "renzo": "Liquid Restaking",
+  "puffer-finance": "Liquid Restaking",
+  "kelp-dao": "Liquid Restaking",
+  "swell": "Liquid Restaking",
+  "swell-liquid-staking": "Liquid Staking",
+  "bedrock": "Liquid Restaking",
+  "symbiotic": "Restaking",
+  "babylon": "Restaking",
+  "stakestone": "Liquid Staking",
+  "stader": "Liquid Staking",
+  "stader-labs": "Liquid Staking",
+  "ankr-staking": "Liquid Staking",
+  "mantle-staked-eth": "Liquid Staking",
+  "binance-staked-eth": "Liquid Staking",
+  "frax-ether": "Liquid Staking",
+  "titan-builder": "MEV",
+  "rsync-builder": "MEV",
+  "flashbots": "MEV",
+  "beaverbuild": "MEV",
+  "blocknative": "MEV",
+  "manifold-finance": "MEV",
+  "eden-network": "MEV",
+  "jito-mev": "MEV",
 
-  // Lending
+  // ── Lending ──
   "aave": "Lending",
   "aave-v2": "Lending",
   "aave-v3": "Lending",
@@ -213,32 +310,98 @@ export const PROTOCOL_CATEGORY_OVERRIDES: Record<string, string> = {
   "morpho": "Lending",
   "morpho-blue": "Lending",
   "spark": "Lending",
+  "spark-lending": "Lending",
+  "spark-liquidity-layer": "Lending",
+  "spark-lend": "Lending",
   "venus": "Lending",
   "benqi-lending": "Lending",
   "kamino-lending": "Lending",
+  "kamino": "Lending",
+  "euler": "Lending",
+  "euler-v2": "Lending",
+  "fluid": "Lending",
+  "fluid-lending": "Lending",
+  "moonwell": "Lending",
+  "radiant-capital": "Lending",
+  "radiant-v2": "Lending",
+  "silo-finance": "Lending",
+  "silo-v2": "Lending",
+  "ajna": "Lending",
+  "notional-finance": "Lending",
+  "goldfinch": "Uncollateralized Lending",
+  "maple-finance": "Uncollateralized Lending",
+  "maple": "Uncollateralized Lending",
+  "clearpool": "Uncollateralized Lending",
+  "centrifuge": "RWA",
+  "truefi": "Uncollateralized Lending",
+  "iron-bank": "Lending",
+  "uwu-lend": "Lending",
+  "zerolend": "Lending",
+  "init-capital": "Lending",
+  "marginfi": "Lending",
+  "solend": "Lending",
+  "save": "Lending",
 
-  // Stablecoins / CDP
+  // ── Stablecoins / CDP ──
   "maker": "CDP",
   "makerdao": "CDP",
+  "sky": "CDP",
   "sky-lending": "CDP",
+  "sky-ecosystem": "CDP",
   "tether": "Stablecoins",
   "circle": "Stablecoins",
+  "usdc": "Stablecoins",
+  "circle-usdc": "Stablecoins",
   "dai": "Stablecoins",
   "ethena": "Stablecoins",
+  "ethena-labs": "Stablecoins",
   "frax": "Stablecoins",
   "rai": "CDP",
+  "liquity": "CDP",
+  "liquity-v2": "CDP",
+  "prisma-finance": "CDP",
+  "usual": "Stablecoins",
+  "usual-money": "Stablecoins",
+  "first-digital-usd": "Stablecoins",
+  "paypal-usd": "Stablecoins",
+  "mountain-protocol": "Stablecoins",
+  "agora": "Stablecoins",
+  "ondo-finance": "RWA",
+  "ondo": "RWA",
+  "steakhouse-financial": "RWA",
+  "steakhouse": "RWA",
+  "backed-finance": "RWA",
+  "hashnote": "RWA",
+  "superstate": "RWA",
 
-  // Bridges
+  // ── Bridges / Cross-chain ──
   "across-protocol": "Bridge",
   "stargate": "Bridge",
   "wormhole": "Bridge",
   "layerzero": "Bridge",
   "hop-protocol": "Bridge",
   "synapse": "Bridge",
+  "circle-cctp": "Bridge",
+  "squid": "Bridge",
+  "socket": "Bridge",
+  "debridge": "Bridge",
+  "relay": "Bridge",
+  "celer-cbridge": "Bridge",
+  "multichain": "Bridge",
+  "axelar": "Bridge",
+  "orbiter-finance": "Bridge",
+  "connext": "Bridge",
+  "near-intents": "Bridge",
+  "near-intent": "Bridge",
+  "allbridge": "Bridge",
+  "meson": "Bridge",
+  "symbiosis": "Bridge",
+  "li-fi": "Bridge",
 
-  // Consumer / Launchpads
+  // ── Consumer / Launchpads ──
   "pump.fun": "Launchpad",
   "pumpfun": "Launchpad",
+  "pump-fun": "Launchpad",
   "friend.tech": "SocialFi",
   "friendtech": "SocialFi",
   "opensea": "NFT Marketplace",
@@ -246,13 +409,51 @@ export const PROTOCOL_CATEGORY_OVERRIDES: Record<string, string> = {
   "magic-eden": "NFT Marketplace",
   "rarible": "NFT Marketplace",
   "x2y2": "NFT Marketplace",
-  "moonwell": "Lending",
   "farcaster": "SocialFi",
   "lens-protocol": "SocialFi",
   "stepn": "Move-To-Earn",
   "axie-infinity": "Gaming",
+  "fomo": "Launchpad",
+  "antfun": "Launchpad",
+  "ant-fun": "Launchpad",
+  "moonshot": "Launchpad",
+  "four.meme": "Launchpad",
+  "clanker": "Launchpad",
+  "virtuals-protocol": "AI",
+  "virtuals": "AI",
+  "virtual-protocol": "AI",
+  "courtyard": "NFT Marketplace",
+  "courtyard.io": "NFT Marketplace",
+  "zora": "NFT Marketplace",
+  "foundation": "NFT Marketplace",
+  "sudoswap": "NFT Marketplace",
+  "tensor": "NFT Marketplace",
+  "topaz": "NFT Marketplace",
+  "tokenworks": "Launchpad",
+  "token-works": "Launchpad",
 
-  // Infrastructure / Oracles
+  // ── Yield / Aggregators ──
+  "pendle": "Yield",
+  "yearn-finance": "Yield Aggregator",
+  "yearn": "Yield Aggregator",
+  "beefy": "Yield Aggregator",
+  "beefy-finance": "Yield Aggregator",
+  "sommelier": "Yield",
+  "harvest-finance": "Yield Aggregator",
+  "convex-finance": "Yield",
+  "stakedao": "Yield",
+  "concentrator": "Yield Aggregator",
+  "gearbox": "Leveraged Yield",
+  "instadapp": "Yield",
+  "mellow-protocol": "Yield",
+
+  // ── Liquidity Managers ──
+  "gauntlet": "Liquidity Manager",
+  "arrakis-finance": "Liquidity Manager",
+  "gamma-strategies": "Liquidity Manager",
+  "charm-finance": "Liquidity Manager",
+
+  // ── Infrastructure / Oracles ──
   "chainlink": "Oracle",
   "pyth-network": "Oracle",
   "the-graph": "Indexer",
@@ -262,8 +463,36 @@ export const PROTOCOL_CATEGORY_OVERRIDES: Record<string, string> = {
   "akash-network": "Compute",
   "helium": "DeWi",
   "hivemapper": "DePIN",
+  "worldcoin": "Identity",
+  "ens": "Identity",
+  "ens-domains": "Identity",
+  "unstoppable-domains": "Identity",
+  "space-id": "Identity",
+  "galxe": "Identity",
+  "bittensor": "AI",
+  "io-net": "Compute",
+  "nosana": "Compute",
+  "livepeer": "Compute",
+  "grass": "DePIN",
+  "ore-protocol": "DePIN",
+  "ore": "DePIN",
 
-  // Chains (parent protocols sometimes have null category)
+  // ── Exchanges ──
+  "backpack-exchange": "CEX",
+  "backpack": "CEX",
+  "bitget": "CEX",
+  "bybit": "CEX",
+  "binance": "CEX",
+  "okx": "CEX",
+  "coinbase": "CEX",
+  "kraken": "CEX",
+  "htx": "CEX",
+  "crypto-com": "CEX",
+  "kucoin": "CEX",
+  "gate-io": "CEX",
+  "mexc": "CEX",
+
+  // ── Chains (parent protocols sometimes have null category) ──
   "ethereum": "Chain",
   "bitcoin": "Chain",
   "solana": "Chain",
@@ -284,6 +513,7 @@ export const PROTOCOL_CATEGORY_OVERRIDES: Record<string, string> = {
   "scroll": "Chain",
   "linea": "Chain",
   "zksync-era": "Chain",
+  "zksync": "Chain",
   "starknet": "Chain",
   "blast": "Chain",
   "mode": "Chain",
@@ -301,6 +531,38 @@ export const PROTOCOL_CATEGORY_OVERRIDES: Record<string, string> = {
   "injective": "Chain",
   "osmosis": "Chain",
   "ton": "Chain",
+  "monad": "Chain",
+  "berachain": "Chain",
+  "sonic": "Chain",
+  "sonic-labs": "Chain",
+  "abstract": "Chain",
+  "megaeth": "Chain",
+  "hyperliquid-l1": "Chain",
+  "taiko": "Chain",
+  "zkfair": "Chain",
+  "immutable-x": "Chain",
+  "ronin": "Chain",
+  "wemix": "Chain",
+  "klaytn": "Chain",
+  "moonriver": "Chain",
+  "aurora": "Chain",
+  "boba-network": "Chain",
+  "metis": "Chain",
+  "harmony": "Chain",
+  "canto": "Chain",
+  "core-dao": "Chain",
+  "flare": "Chain",
+  "rootstock": "Chain",
+  "bob": "Chain",
+  "world-chain": "Chain",
+  "ink": "Chain",
+  "unichain": "Chain",
+  "treasure": "Chain",
+  "polygon-zkevm": "Chain",
+  "zircuit": "Chain",
+  "morph": "Chain",
+  "fraxtal": "Chain",
+  "redstone": "Chain",
 };
 
 // ---------------------------------------------------------------------------
@@ -340,17 +602,11 @@ for (const [k, v] of Object.entries(CATEGORY_GROUP)) {
 /**
  * Get the top-level group for a raw category string.
  * Optionally pass a slug to check PROTOCOL_CATEGORY_OVERRIDES.
+ *
+ * Priority: slug override (manually curated) → direct category → case-insensitive → "Other"
  */
 export function getCategoryGroup(category: string, slug?: string): string {
-  // 1. Direct lookup
-  const direct = CATEGORY_GROUP[category];
-  if (direct) return direct;
-
-  // 2. Case-insensitive lookup
-  const ci = CATEGORY_GROUP_CI.get(category.toLowerCase());
-  if (ci) return ci;
-
-  // 3. Slug-based override (for protocols with null/Other category)
+  // 1. Slug-based override (highest priority — manually curated)
   if (slug) {
     const override = PROTOCOL_CATEGORY_OVERRIDES[slug.toLowerCase()];
     if (override) {
@@ -358,6 +614,14 @@ export function getCategoryGroup(category: string, slug?: string): string {
       if (overrideGroup) return overrideGroup;
     }
   }
+
+  // 2. Direct lookup
+  const direct = CATEGORY_GROUP[category];
+  if (direct) return direct;
+
+  // 3. Case-insensitive lookup
+  const ci = CATEGORY_GROUP_CI.get(category.toLowerCase());
+  if (ci) return ci;
 
   return "Other";
 }

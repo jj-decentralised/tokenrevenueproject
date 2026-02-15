@@ -178,8 +178,10 @@ export function buildUnifiedTokenList(
 
   // TVL lookup (also carries mcap from DefiLlama /protocols)
   const tvlByName = new Map<string, (typeof tvlProtocols)[0]>();
+  const tvlBySlug = new Map<string, (typeof tvlProtocols)[0]>();
   for (const t of tvlProtocols) {
     tvlByName.set(t.name.toLowerCase(), t);
+    if (t.slug) tvlBySlug.set(t.slug.toLowerCase(), t);
   }
 
   // Earnings lookup (TokenTerminal)
@@ -289,8 +291,9 @@ export function buildUnifiedTokenList(
     const displayLower = p.displayName.toLowerCase();
 
     // TVL (also carries mcap from DefiLlama's /protocols endpoint)
+    const pSlug = (p.slug || toSlug(p.name)).toLowerCase();
     const tvlMatch =
-      tvlByName.get(nameLower) || tvlByName.get(displayLower);
+      tvlByName.get(nameLower) || tvlByName.get(displayLower) || tvlBySlug.get(pSlug);
     const tvlVal = tvlMatch?.tvl ?? null;
 
     // Earnings (TokenTerminal — supplementary)
@@ -330,14 +333,14 @@ export function buildUnifiedTokenList(
       earningsMatch?.latestEarnings ??
       (protocolRevenue != null && protocolRevenue > 0 ? protocolRevenue : null);
 
-    // Category
+    // Category — pass slug for override priority
     let categoryGroup: string;
     let subcategory: string;
     if (mapping) {
       categoryGroup = mapping.categoryGroup;
       subcategory = mapping.subcategory;
     } else {
-      categoryGroup = getCategoryGroup(p.category || "Other");
+      categoryGroup = getCategoryGroup(p.category || "Other", pSlug);
       subcategory = p.category || "Other";
     }
 
