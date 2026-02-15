@@ -8,6 +8,7 @@ import {
   Area,
   Bar,
   Line,
+  LineChart,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -94,6 +95,123 @@ function buildLiveSentimentVsRevenue(
 }
 
 // ---------------------------------------------------------------------------
+// Helper: build live ETH ETF flows chart data from ctx.etf.netFlows
+// Aggregates daily flows into monthly buckets for the bar chart.
+// ---------------------------------------------------------------------------
+function buildLiveEthFlowsData(
+  netFlows: { date: string; btcFlows: number; ethFlows: number; totalFlows: number }[]
+): { period: string; netFlows: number; price: number; note: string }[] {
+  // Group by month
+  const monthBuckets = new Map<string, { totalEthFlows: number; count: number }>();
+
+  for (const entry of netFlows) {
+    const d = new Date(entry.date);
+    const year = d.getUTCFullYear();
+    const month = d.getUTCMonth();
+    // Create a monthly key
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const key = `${monthNames[month]} ${year}`;
+
+    if (!monthBuckets.has(key)) {
+      monthBuckets.set(key, { totalEthFlows: 0, count: 0 });
+    }
+    const bucket = monthBuckets.get(key)!;
+    bucket.totalEthFlows += entry.ethFlows;
+    bucket.count += 1;
+  }
+
+  // Sort chronologically and convert to $B
+  const sortedKeys = [...monthBuckets.keys()].sort((a, b) => {
+    const dateA = new Date(a);
+    const dateB = new Date(b);
+    return dateA.getTime() - dateB.getTime();
+  });
+
+  // Take the last 12 months for a clean view
+  const recentKeys = sortedKeys.slice(-12);
+
+  return recentKeys.map((key) => {
+    const bucket = monthBuckets.get(key)!;
+    const flowsInBillions = +(bucket.totalEthFlows / 1e9).toFixed(2);
+    return {
+      period: key,
+      netFlows: flowsInBillions,
+      price: 0, // price not available from ETF flow data
+      note: flowsInBillions >= 0 ? "Net inflows" : "Net outflows",
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Helper: build protocol revenue comparison chart data from protocolHistory
+// Aggregates daily revenue into weekly buckets for smoother lines.
+// ---------------------------------------------------------------------------
+function buildProtocolRevenueComparison(
+  protocols: { name: string; history: { date: number; fees: number; revenue: number }[] }[]
+): { chartData: Record<string, unknown>[]; protocolNames: string[] } {
+  // Focus on the top 4 protocols by total revenue
+  const protocolsWithTotal = protocols
+    .map((p) => ({
+      ...p,
+      totalRevenue: p.history.reduce((sum, h) => sum + (h.revenue || h.fees || 0), 0),
+    }))
+    .sort((a, b) => b.totalRevenue - a.totalRevenue)
+    .slice(0, 4);
+
+  const protocolNames = protocolsWithTotal.map((p) => p.name);
+
+  // Collect all dates across all protocols and bucket by week
+  const weekBuckets = new Map<string, Record<string, number[]>>();
+
+  for (const protocol of protocolsWithTotal) {
+    for (const entry of protocol.history) {
+      const d = new Date(entry.date * 1000);
+      // Get the Monday of this week
+      const day = d.getUTCDay();
+      const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(d);
+      monday.setUTCDate(diff);
+      const weekKey = monday.toISOString().slice(0, 10);
+
+      if (!weekBuckets.has(weekKey)) {
+        weekBuckets.set(weekKey, {});
+      }
+      const bucket = weekBuckets.get(weekKey)!;
+      if (!bucket[protocol.name]) {
+        bucket[protocol.name] = [];
+      }
+      bucket[protocol.name].push(entry.revenue || entry.fees || 0);
+    }
+  }
+
+  // Sort by date, take last 26 weeks (6 months)
+  const sortedWeeks = [...weekBuckets.keys()].sort();
+  const recentWeeks = sortedWeeks.slice(-26);
+
+  const chartData: Record<string, unknown>[] = recentWeeks.map((weekKey) => {
+    const bucket = weekBuckets.get(weekKey)!;
+    const d = new Date(weekKey);
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const label = `${monthNames[d.getUTCMonth()]} ${d.getUTCDate()}`;
+
+    const point: Record<string, unknown> = { date: label };
+
+    for (const name of protocolNames) {
+      const values = bucket[name] || [];
+      // Average daily revenue for the week, in thousands
+      const avg = values.length > 0
+        ? values.reduce((s, v) => s + v, 0) / values.length
+        : 0;
+      point[name] = Math.round(avg);
+    }
+
+    return point;
+  });
+
+  return { chartData, protocolNames };
+}
+
+// ---------------------------------------------------------------------------
 // Custom tooltip for the dual-axis divergence chart
 // ---------------------------------------------------------------------------
 function DivergenceTooltip({ active, payload, label }: any) {
@@ -130,6 +248,7 @@ function DivergenceTooltip({ active, payload, label }: any) {
 function EthFlowsTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   const data = payload[0]?.payload;
+  if (!data) return null;
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-lg px-4 py-3 text-sm">
       <p className="font-semibold text-slate-900 mb-1.5">{label}</p>
@@ -137,21 +256,47 @@ function EthFlowsTooltip({ active, payload, label }: any) {
         Net Flows:{" "}
         <span
           className={`font-semibold ${
-            data.netFlows >= 0 ? "text-emerald-600" : "text-red-500"
+            (data.netFlows ?? 0) >= 0 ? "text-emerald-600" : "text-red-500"
           }`}
         >
-          {data.netFlows >= 0 ? "+" : ""}
-          ${data.netFlows}B
+          {(data.netFlows ?? 0) >= 0 ? "+" : ""}
+          ${data.netFlows ?? 0}B
         </span>
       </p>
-      <p className="text-slate-600">
-        ETH Price: <span className="font-semibold">${data.price?.toLocaleString()}</span>
-      </p>
+      {data.price > 0 && (
+        <p className="text-slate-600">
+          ETH Price: <span className="font-semibold">${data.price?.toLocaleString()}</span>
+        </p>
+      )}
       {data.note && (
         <p className="mt-1.5 text-xs text-slate-400 border-t border-slate-100 pt-1.5">
           {data.note}
         </p>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Custom tooltip for the protocol revenue comparison chart
+// ---------------------------------------------------------------------------
+function ProtocolRevenueTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-lg px-4 py-3 text-sm">
+      <p className="font-semibold text-slate-900 mb-1.5">{label}</p>
+      {payload.map((entry: any, i: number) => (
+        <p key={i} className="flex items-center gap-2" style={{ color: entry.color }}>
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-full"
+            style={{ backgroundColor: entry.color }}
+          />
+          {entry.name}:{" "}
+          <span className="font-semibold">
+            ${Number(entry.value).toLocaleString()}
+          </span>
+        </p>
+      ))}
     </div>
   );
 }
@@ -298,6 +443,14 @@ function TradFiCard({
   );
 }
 
+// Protocol revenue comparison line colors
+const PROTOCOL_COLORS = [
+  CHART_COLORS.primary,    // Blue - Aave
+  CHART_COLORS.secondary,  // Purple - Uniswap
+  CHART_COLORS.tertiary,   // Cyan - Hyperliquid
+  CHART_COLORS.accent,     // Amber - Jupiter
+];
+
 // ===========================================================================
 // MAIN COMPONENT
 // ===========================================================================
@@ -310,6 +463,8 @@ export default function Section2Sentiment() {
 
   const hasLiveSentiment = !!ctx.sentiment;
   const hasLiveFees = !!ctx.fees;
+  const hasLiveEtf = !!ctx.etf;
+  const hasLiveProtocolHistory = !!ctx.protocolHistory;
 
   // Current Fear & Greed value
   const fgValue = hasLiveSentiment
@@ -385,6 +540,28 @@ export default function Section2Sentiment() {
     const maxVal = Math.max(...moneyChartData.map((d) => d.revenue));
     return Math.ceil(maxVal / 2) * 2 + 2; // round up to nearest even + buffer
   }, [moneyChartData]);
+
+  // -----------------------------------------------------------------------
+  // Build live ETH ETF flows chart data when available
+  // -----------------------------------------------------------------------
+  const ethFlowsChartData = useMemo(() => {
+    if (hasLiveEtf && ctx.etf!.netFlows.length > 0) {
+      const liveData = buildLiveEthFlowsData(ctx.etf!.netFlows);
+      // Only use live data if we got enough data points
+      if (liveData.length >= 3) return liveData;
+    }
+    return ethFlowsData;
+  }, [hasLiveEtf, ctx.etf]);
+
+  // -----------------------------------------------------------------------
+  // Build protocol revenue comparison data when available
+  // -----------------------------------------------------------------------
+  const protocolRevenueData = useMemo(() => {
+    if (hasLiveProtocolHistory && ctx.protocolHistory!.protocols.length > 0) {
+      return buildProtocolRevenueComparison(ctx.protocolHistory!.protocols);
+    }
+    return null;
+  }, [hasLiveProtocolHistory, ctx.protocolHistory]);
 
   // -----------------------------------------------------------------------
   // Color-code the Fear & Greed value
@@ -627,26 +804,34 @@ export default function Section2Sentiment() {
         </div>
       </div>
 
-      {/* ---- ETH Flows Chart (static — editorial data) ---- */}
+      {/* ---- ETH Flows Chart (live ETF data when available, static fallback) ---- */}
       <Card className="mb-10">
         <div className="mb-6">
-          <h3 className="text-xl font-bold text-slate-900">
-            ETH Net Flows: The Sentiment Barometer
-          </h3>
+          <div className="flex items-center gap-3">
+            <h3 className="text-xl font-bold text-slate-900">
+              ETH Net Flows: The Sentiment Barometer
+            </h3>
+            {hasLiveEtf && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-full border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live ETF Data
+              </span>
+            )}
+          </div>
           <p className="text-sm text-slate-500 mt-1 max-w-2xl">
-            ETH has shifted from net inflows to persistent net outflows since Q4
-            2024 — a clear signal that capital is leaving the ecosystem even as
-            protocol revenues hit records.
+            {hasLiveEtf
+              ? "Live ETH ETF flow data showing monthly net inflows and outflows. Persistent outflows signal capital leaving the ecosystem even as protocol revenues hit records."
+              : "ETH has shifted from net inflows to persistent net outflows since Q4 2024 — a clear signal that capital is leaving the ecosystem even as protocol revenues hit records."}
           </p>
         </div>
 
         <ChartExport
-          data={ethFlowsData}
+          data={ethFlowsChartData}
           filename="eth-net-flows-sentiment-barometer"
         >
           <ResponsiveContainer width="100%" height={320}>
             <ComposedChart
-              data={ethFlowsData}
+              data={ethFlowsChartData}
               margin={{ top: 10, right: 20, left: 0, bottom: 10 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -666,14 +851,17 @@ export default function Section2Sentiment() {
                 tickFormatter={(v: number) => `${v >= 0 ? "+" : ""}$${v}B`}
               />
 
-              <YAxis
-                yAxisId="price"
-                orientation="right"
-                tick={{ fontSize: 11, fill: "#8b5cf6" }}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`}
-              />
+              {/* Only show price axis when price data exists (static fallback) */}
+              {!hasLiveEtf && (
+                <YAxis
+                  yAxisId="price"
+                  orientation="right"
+                  tick={{ fontSize: 11, fill: "#8b5cf6" }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`}
+                />
+              )}
 
               <Tooltip content={<EthFlowsTooltip />} />
 
@@ -692,7 +880,7 @@ export default function Section2Sentiment() {
                 radius={[6, 6, 0, 0]}
                 maxBarSize={48}
               >
-                {ethFlowsData.map((entry, index) => (
+                {ethFlowsChartData.map((entry, index) => (
                   <Cell
                     key={`cell-${index}`}
                     fill={entry.netFlows >= 0 ? "#10b981" : "#ef4444"}
@@ -701,16 +889,19 @@ export default function Section2Sentiment() {
                 ))}
               </Bar>
 
-              <Line
-                yAxisId="price"
-                type="monotone"
-                dataKey="price"
-                name="ETH Price"
-                stroke="#8b5cf6"
-                strokeWidth={2.5}
-                dot={{ r: 4, fill: "#8b5cf6", strokeWidth: 0 }}
-                activeDot={{ r: 6, stroke: "#fff", strokeWidth: 2 }}
-              />
+              {/* Only show price line when price data exists (static fallback) */}
+              {!hasLiveEtf && (
+                <Line
+                  yAxisId="price"
+                  type="monotone"
+                  dataKey="price"
+                  name="ETH Price"
+                  stroke="#8b5cf6"
+                  strokeWidth={2.5}
+                  dot={{ r: 4, fill: "#8b5cf6", strokeWidth: 0 }}
+                  activeDot={{ r: 6, stroke: "#fff", strokeWidth: 2 }}
+                />
+              )}
 
               <Legend
                 verticalAlign="top"
@@ -723,14 +914,97 @@ export default function Section2Sentiment() {
         </ChartExport>
 
         <DataSource
-          sources={[
-            "CoinGecko",
-            "Glassnode",
-            "ETF Flow Data",
-            "DefiLlama",
-          ]}
+          sources={
+            hasLiveEtf
+              ? ["DefiLlama Pro ETF API", "ETF Flow Data"]
+              : ["CoinGecko", "Glassnode", "ETF Flow Data", "DefiLlama"]
+          }
         />
       </Card>
+
+      {/* ---- Protocol Revenue Comparison (live data only) ---- */}
+      {protocolRevenueData && protocolRevenueData.chartData.length > 0 && (
+        <Card className="mb-10">
+          <div className="mb-6">
+            <div className="flex items-center gap-3">
+              <h3 className="text-xl font-bold text-slate-900">
+                Protocol Revenue Comparison
+              </h3>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-full border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live
+              </span>
+            </div>
+            <p className="text-sm text-slate-500 mt-1 max-w-2xl">
+              Average daily revenue (USD) for top protocols over the past 6
+              months. Revenue trends show which protocols are building
+              sustainable fee-generating businesses regardless of market
+              sentiment.
+            </p>
+          </div>
+
+          <ChartExport
+            data={protocolRevenueData.chartData as Record<string, unknown>[]}
+            filename="protocol-revenue-comparison"
+          >
+            <ResponsiveContainer width="100%" height={380}>
+              <LineChart
+                data={protocolRevenueData.chartData}
+                margin={{ top: 10, right: 20, left: 10, bottom: 20 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 11, fill: "#94a3b8" }}
+                  tickLine={false}
+                  axisLine={{ stroke: "#e2e8f0" }}
+                  angle={-30}
+                  textAnchor="end"
+                  height={50}
+                />
+
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#94a3b8" }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v: number) =>
+                    v >= 1_000_000
+                      ? `$${(v / 1_000_000).toFixed(1)}M`
+                      : v >= 1_000
+                      ? `$${(v / 1_000).toFixed(0)}K`
+                      : `$${v}`
+                  }
+                />
+
+                <Tooltip content={<ProtocolRevenueTooltip />} />
+
+                <Legend
+                  verticalAlign="top"
+                  height={36}
+                  iconType="circle"
+                  wrapperStyle={{ fontSize: 13 }}
+                />
+
+                {protocolRevenueData.protocolNames.map((name, i) => (
+                  <Line
+                    key={name}
+                    type="monotone"
+                    dataKey={name}
+                    name={name}
+                    stroke={PROTOCOL_COLORS[i % PROTOCOL_COLORS.length]}
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 5, stroke: "#fff", strokeWidth: 2 }}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartExport>
+
+          <DataSource sources={["DefiLlama Protocol Fees API"]} />
+        </Card>
+      )}
 
       {/* ---- TradFi Parallels (static — editorial) ---- */}
       <div className="mb-10">

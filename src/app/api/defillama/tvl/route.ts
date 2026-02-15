@@ -6,9 +6,23 @@ import { NextResponse } from "next/server";
 // Fetches total historical chain TVL and top-20 protocols by TVL
 // from DefiLlama, then aggregates everything into quarterly
 // buckets.  Cached for 1 hour.
+//
+// When DEFILLAMA_API_KEY is set, routes through the Pro API at
+// https://pro-api.llama.fi/{KEY}/... for higher rate limits and
+// additional data.
 // ----------------------------------------------------------------
 
 export const revalidate = 3600; // 1 hour
+
+// ---------- Pro API helper ----------
+
+function getBaseUrl(): string {
+  const key = process.env.DEFILLAMA_API_KEY;
+  if (key) {
+    return `https://pro-api.llama.fi/${key}`;
+  }
+  return "https://api.llama.fi";
+}
 
 // ---------- response types ----------
 
@@ -122,10 +136,12 @@ function bucketize(daily: DailyTVL[]): QuarterlyTVLBucket[] {
 
 export async function GET(): Promise<NextResponse> {
   try {
+    const base = getBaseUrl();
+
     // Fire both requests in parallel
     const [historicalRaw, protocolsRaw] = await Promise.all([
-      fetchJSON("https://api.llama.fi/v2/historicalChainTvl"),
-      fetchJSON("https://api.llama.fi/protocols"),
+      fetchJSON(`${base}/v2/historicalChainTvl`),
+      fetchJSON(`${base}/protocols`),
     ]);
 
     // ---- Total TVL history -> quarterly buckets ----

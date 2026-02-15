@@ -568,10 +568,12 @@ export default function Section3Quality() {
   );
 
   // Interest income dependency percentage
-  const latestStablecoin = stablecoinRevenueBreakdown[stablecoinRevenueBreakdown.length - 1];
-  const interestPct = Math.round(
-    (latestStablecoin.interestIncome / latestStablecoin.total) * 100
-  );
+  const latestStablecoin = stablecoinRevenueBreakdown[stablecoinRevenueBreakdown.length - 1] ?? {
+    interestIncome: 0, transactionFees: 0, other: 0, fedRate: 0, total: 1,
+  };
+  const interestPct = latestStablecoin.total > 0
+    ? Math.round((latestStablecoin.interestIncome / latestStablecoin.total) * 100)
+    : 0;
 
   // ----- Live data indicator -----
   const isLive = hasLiveFees;

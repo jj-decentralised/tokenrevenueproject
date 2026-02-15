@@ -72,11 +72,27 @@ export interface LiveTVLData {
   }[];
 }
 
+export interface LiveETFData {
+  totalAum: number;
+  btcEtfAum: number;
+  ethEtfAum: number;
+  netFlows: { date: string; btcFlows: number; ethFlows: number; totalFlows: number }[];
+}
+
+export interface LiveProtocolHistory {
+  protocols: {
+    name: string;
+    history: { date: number; fees: number; revenue: number }[];
+  }[];
+}
+
 export interface LiveData {
   fees: LiveFeeOverview | null;
   sentiment: LiveSentiment | null;
   tokenTerminal: LiveTokenTerminalData | null;
   tvl: LiveTVLData | null;
+  etf: LiveETFData | null;
+  protocolHistory: LiveProtocolHistory | null;
   isLoading: boolean;
   isLive: boolean;
   lastUpdated: Date | null;
@@ -89,6 +105,8 @@ const defaultLiveData: LiveData = {
   sentiment: null,
   tokenTerminal: null,
   tvl: null,
+  etf: null,
+  protocolHistory: null,
   isLoading: true,
   isLive: false,
   lastUpdated: null,
@@ -150,7 +168,7 @@ export function groupByCategory(
 }
 
 // ============================================================
-// Provider
+// Provider — fetch + normalize helpers
 // ============================================================
 
 async function fetchJSON<T>(url: string): Promise<T | null> {
@@ -165,11 +183,199 @@ async function fetchJSON<T>(url: string): Promise<T | null> {
   }
 }
 
+/**
+ * Fetch the fees overview and normalise the response into the
+ * LiveFeeOverview shape that the rest of the app expects.
+ *
+ * The API returns `totalDataChart` as `Array<{date,fees,revenue}>`
+ * but the app expects `[timestamp, value][]` tuples.
+ */
+async function fetchFees(): Promise<LiveFeeOverview | null> {
+  try {
+    const res = await fetch("/api/defillama?type=overview");
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json.source === "static") return null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = json as Record<string, any>;
+
+    // Normalize totalDataChart → [timestamp, feeValue][]
+    const rawChart = Array.isArray(raw.totalDataChart) ? raw.totalDataChart : [];
+    const totalDataChart: [number, number][] = rawChart.map(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (entry: any): [number, number] => {
+        if (Array.isArray(entry) && entry.length >= 2) {
+          return [Number(entry[0]), Number(entry[1]) || 0];
+        }
+        if (entry && typeof entry === "object") {
+          return [
+            Number(entry.date ?? 0),
+            Number(entry.fees ?? entry.Fees ?? entry.dailyFees ?? entry.value ?? 0),
+          ];
+        }
+        return [0, 0];
+      },
+    );
+
+    // Normalize protocols
+    const rawProtos = Array.isArray(raw.protocols) ? raw.protocols : [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const protocols: LiveProtocolFee[] = rawProtos.map((p: any) => ({
+      name: String(p.name ?? ""),
+      displayName: String(p.name ?? p.displayName ?? ""),
+      category: String(p.category ?? "Other"),
+      chains: Array.isArray(p.chains) ? p.chains.map(String) : [],
+      total24h: Number(p.total24h ?? 0),
+      total7d: Number(p.total7d ?? 0),
+      total30d: Number(p.total30d ?? 0),
+      totalAllTime: Number(p.totalAllTime ?? 0),
+      change_1d: p.change1d ?? p.change_1d ?? null,
+      change_7d: p.change7d ?? p.change_7d ?? null,
+      change_1m: p.change1m ?? p.change_1m ?? null,
+      revenue24h: Number(p.revenue24h ?? 0),
+      revenue7d: Number(p.revenue7d ?? 0),
+      revenue30d: Number(p.revenue30d ?? 0),
+    }));
+
+    return {
+      totalFees24h: Number(raw.totalFees24h ?? 0),
+      totalRevenue24h: Number(raw.totalRevenue24h ?? 0),
+      change_1d: Number(raw.change_1d ?? 0),
+      change_7d: Number(raw.change_7d ?? 0),
+      change_1m: Number(raw.change_1m ?? 0),
+      totalDataChart,
+      protocols,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch TVL and normalise into the LiveTVLData shape.
+ *
+ * The API returns quarterly buckets and per-protocol detail, but the
+ * frontend expects flat `[timestamp, tvlValue][]` and a simplified
+ * `topProtocols` list.
+ */
+async function fetchTVL(): Promise<LiveTVLData | null> {
+  try {
+    const res = await fetch("/api/defillama/tvl");
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json.error) return null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = json as Record<string, any>;
+
+    // Convert quarterly TVL → [timestamp, value][] tuples
+    const totalDataChart: [number, number][] = [];
+    if (Array.isArray(raw.totalTVLQuarterly)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const q of raw.totalTVLQuarterly as any[]) {
+        const ts = q.startDate
+          ? Math.floor(new Date(q.startDate).getTime() / 1000)
+          : 0;
+        totalDataChart.push([ts, Number(q.endTotalTVL ?? q.avgTotalTVL ?? 0)]);
+      }
+    }
+
+    // Normalise top protocols → { name, tvl, category, chains }
+    const topProtocols = Array.isArray(raw.topProtocols)
+      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        raw.topProtocols.map((p: any) => ({
+          name: String(p.name ?? ""),
+          tvl: Number(p.currentTVL ?? p.tvl ?? 0),
+          category: String(p.category ?? ""),
+          chains: Array.isArray(p.chains) ? p.chains.map(String) : [],
+        }))
+      : [];
+
+    return { totalDataChart, topProtocols };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch protocol-history and normalise into LiveProtocolHistory.
+ */
+async function fetchProtocolHistory(): Promise<LiveProtocolHistory | null> {
+  try {
+    const res = await fetch(
+      "/api/defillama/protocol-history?protocols=aave,uniswap,hyperliquid,jupiter,raydium,lido,tether,circle",
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json.error) return null;
+
+    const protocols = Array.isArray(json.protocols) ? json.protocols : [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return { protocols: protocols.map((p: any) => ({
+      name: String(p.name ?? ""),
+      history: Array.isArray(p.history) ? p.history : [],
+    })) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch and normalise the ETF API response.
+ *
+ * The /api/defillama/etf route returns either
+ *   { source: "static", data: null }            (no API key)
+ *   { source: "pro",    data: { ... } }          (Pro API)
+ *
+ * We unwrap the nested `.data` envelope and map the Pro API shape
+ * into the flat LiveETFData interface the rest of the app expects.
+ */
+async function fetchETF(): Promise<LiveETFData | null> {
+  try {
+    const res = await fetch("/api/defillama/etf");
+    if (!res.ok) return null;
+    const json = await res.json();
+
+    // Static fallback — no API key configured
+    if (json.source === "static" || !json.data) return null;
+
+    const d = json.data as Record<string, unknown>;
+
+    // Extract per-category AUM
+    let btcEtfAum = 0;
+    let ethEtfAum = 0;
+    if (Array.isArray(d.categories)) {
+      for (const cat of d.categories as { category: string; totalAum: number }[]) {
+        if (cat.category?.toLowerCase().includes("btc")) btcEtfAum = cat.totalAum ?? 0;
+        if (cat.category?.toLowerCase().includes("eth")) ethEtfAum = cat.totalAum ?? 0;
+      }
+    }
+
+    const totalAum = (d.totalAum as number) ?? btcEtfAum + ethEtfAum;
+
+    // Map flowHistory -> netFlows
+    const flowHistory = Array.isArray(d.flowHistory) ? d.flowHistory : [];
+    const netFlows = flowHistory.map((entry: Record<string, unknown>) => ({
+      date: String(entry.date ?? ""),
+      btcFlows: Number(entry.btcFlows ?? 0),
+      ethFlows: Number(entry.ethFlows ?? 0),
+      totalFlows: Number(entry.totalFlows ?? 0),
+    }));
+
+    return { totalAum, btcEtfAum, ethEtfAum, netFlows };
+  } catch {
+    return null;
+  }
+}
+
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const [fees, setFees] = useState<LiveFeeOverview | null>(null);
   const [sentiment, setSentiment] = useState<LiveSentiment | null>(null);
   const [tokenTerminal, setTokenTerminal] = useState<LiveTokenTerminalData | null>(null);
   const [tvl, setTvl] = useState<LiveTVLData | null>(null);
+  const [etf, setEtf] = useState<LiveETFData | null>(null);
+  const [protocolHistory, setProtocolHistory] = useState<LiveProtocolHistory | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
@@ -178,11 +384,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     const errs: string[] = [];
 
-    const [feesData, sentimentData, ttData, tvlData] = await Promise.allSettled([
-      fetchJSON<LiveFeeOverview>("/api/defillama?type=overview"),
+    const [feesData, sentimentData, ttData, tvlData, etfData, protocolHistoryData] = await Promise.allSettled([
+      fetchFees(),
       fetchJSON<LiveSentiment>("/api/sentiment"),
       fetchJSON<LiveTokenTerminalData>("/api/tokenterminal"),
-      fetchJSON<LiveTVLData>("/api/defillama/tvl"),
+      fetchTVL(),
+      fetchETF(),
+      fetchProtocolHistory(),
     ]);
 
     if (feesData.status === "fulfilled" && feesData.value) {
@@ -209,6 +417,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       errs.push("TVL fetch failed");
     }
 
+    if (etfData.status === "fulfilled" && etfData.value) {
+      setEtf(etfData.value);
+    } else {
+      errs.push("ETF flow data fetch failed");
+    }
+
+    if (protocolHistoryData.status === "fulfilled" && protocolHistoryData.value) {
+      setProtocolHistory(protocolHistoryData.value);
+    } else {
+      errs.push("Protocol history fetch failed");
+    }
+
     setErrors(errs);
     setIsLoading(false);
     setLastUpdated(new Date());
@@ -221,11 +441,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [fetchAll]);
 
-  const isLive = !!(fees || sentiment || tokenTerminal || tvl);
+  const isLive = !!(fees || sentiment || tokenTerminal || tvl || etf || protocolHistory);
 
   return (
     <DataContext.Provider
-      value={{ fees, sentiment, tokenTerminal, tvl, isLoading, isLive, lastUpdated, errors, refetch: fetchAll }}
+      value={{ fees, sentiment, tokenTerminal, tvl, etf, protocolHistory, isLoading, isLive, lastUpdated, errors, refetch: fetchAll }}
     >
       {children}
     </DataContext.Provider>

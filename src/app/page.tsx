@@ -8,6 +8,7 @@ import Section4Moats from "@/components/sections/Section4Moats";
 import Section5NextLeaders from "@/components/sections/Section5NextLeaders";
 import { useDataContext } from "@/lib/DataContext";
 import { DataStatus } from "@/components/ui/DataStatus";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 
 const NAV_ITEMS = [
   { id: "revenue", label: "Revenue & P/E" },
@@ -163,7 +164,9 @@ export default function HomePage() {
           data-section-id="revenue"
           ref={setSectionRef("revenue")}
         >
-          <Section1Revenue />
+          <ErrorBoundary>
+            <Section1Revenue />
+          </ErrorBoundary>
         </div>
 
         <div
@@ -171,7 +174,9 @@ export default function HomePage() {
           data-section-id="sentiment"
           ref={setSectionRef("sentiment")}
         >
-          <Section2Sentiment />
+          <ErrorBoundary>
+            <Section2Sentiment />
+          </ErrorBoundary>
         </div>
 
         <div
@@ -179,7 +184,9 @@ export default function HomePage() {
           data-section-id="quality"
           ref={setSectionRef("quality")}
         >
-          <Section3Quality />
+          <ErrorBoundary>
+            <Section3Quality />
+          </ErrorBoundary>
         </div>
 
         <div
@@ -187,7 +194,9 @@ export default function HomePage() {
           data-section-id="moats"
           ref={setSectionRef("moats")}
         >
-          <Section4Moats />
+          <ErrorBoundary>
+            <Section4Moats />
+          </ErrorBoundary>
         </div>
 
         <div
@@ -195,7 +204,9 @@ export default function HomePage() {
           data-section-id="next-leaders"
           ref={setSectionRef("next-leaders")}
         >
-          <Section5NextLeaders />
+          <ErrorBoundary>
+            <Section5NextLeaders />
+          </ErrorBoundary>
         </div>
       </main>
 
