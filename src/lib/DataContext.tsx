@@ -194,6 +194,14 @@ export interface LiveCoinGeckoData {
   fetchedAt: string;
 }
 
+export interface LiveSectorHistory {
+  dates: number[];
+  fees: Record<string, number[]>;
+  revenue: Record<string, number[]> | null;
+  revenueDates: number[] | null;
+  protocolCount: number;
+}
+
 export interface DataDifferential {
   protocolId: string;
   protocolName: string;
@@ -216,6 +224,7 @@ export interface LiveData {
   earnings: LiveEarningsData | null;
   coinGlass: LiveCoinGlassData | null;
   coinGecko: LiveCoinGeckoData | null;
+  sectorHistory: LiveSectorHistory | null;
   differentials: DataDifferential[];
   unifiedTokens: UnifiedToken[];
   isLoading: boolean;
@@ -236,6 +245,7 @@ const defaultLiveData: LiveData = {
   earnings: null,
   coinGlass: null,
   coinGecko: null,
+  sectorHistory: null,
   differentials: [],
   unifiedTokens: [],
   isLoading: true,
@@ -656,6 +666,32 @@ async function fetchCoinGlass(): Promise<LiveCoinGlassData | null> {
 }
 
 /**
+ * Fetch sector-level historical fee/revenue time series.
+ * Uses the new /api/defillama/sector-history endpoint.
+ */
+async function fetchSectorHistory(): Promise<LiveSectorHistory | null> {
+  try {
+    const res = await fetch("/api/defillama/sector-history");
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json.error) return null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = json as Record<string, any>;
+
+    return {
+      dates: Array.isArray(raw.dates) ? raw.dates.map(Number) : [],
+      fees: raw.fees && typeof raw.fees === "object" ? raw.fees : {},
+      revenue: raw.revenue && typeof raw.revenue === "object" ? raw.revenue : null,
+      revenueDates: Array.isArray(raw.revenueDates) ? raw.revenueDates.map(Number) : null,
+      protocolCount: Number(raw.protocolCount ?? 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fetch CoinGecko market data and normalise into LiveCoinGeckoData.
  */
 async function fetchCoinGecko(): Promise<LiveCoinGeckoData | null> {
@@ -821,6 +857,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [earnings, setEarnings] = useState<LiveEarningsData | null>(null);
   const [coinGlass, setCoinGlass] = useState<LiveCoinGlassData | null>(null);
   const [coinGecko, setCoinGecko] = useState<LiveCoinGeckoData | null>(null);
+  const [sectorHistory, setSectorHistory] = useState<LiveSectorHistory | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
@@ -840,6 +877,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const earningsP = fetchEarnings();
     const coinGlassP = fetchCoinGlass();
     const coinGeckoP = fetchCoinGecko();
+    const sectorHistoryP = fetchSectorHistory();
 
     // Wave 1: Wait for critical data (fees, coinGecko, tvl, sentiment)
     // These power the main sections and scatter plots
@@ -876,8 +914,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setLastUpdated(new Date());
 
     // Wave 2: Process secondary data as it arrives (already in flight)
-    const [ttData, etfData, protocolHistoryData, activityData, earningsData, coinGlassData] = await Promise.allSettled([
-      ttP, etfP, protocolHistoryP, activityP, earningsP, coinGlassP,
+    const [ttData, etfData, protocolHistoryData, activityData, earningsData, coinGlassData, sectorHistoryData] = await Promise.allSettled([
+      ttP, etfP, protocolHistoryP, activityP, earningsP, coinGlassP, sectorHistoryP,
     ]);
 
     if (ttData.status === "fulfilled" && ttData.value) {
@@ -915,6 +953,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       errs.push("CoinGlass derivatives data fetch failed");
     }
 
+    if (sectorHistoryData.status === "fulfilled" && sectorHistoryData.value) {
+      setSectorHistory(sectorHistoryData.value);
+    } else {
+      errs.push("Sector history fetch failed");
+    }
+
     setErrors(errs);
     setLastUpdated(new Date());
   }, []);
@@ -926,7 +970,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [fetchAll]);
 
-  const isLive = !!(fees || sentiment || tokenTerminal || tvl || etf || protocolHistory || activity || earnings || coinGlass || coinGecko);
+  const isLive = !!(fees || sentiment || tokenTerminal || tvl || etf || protocolHistory || activity || earnings || coinGlass || coinGecko || sectorHistory);
 
   const differentials = useMemo(
     () => computeDifferentials(fees, tokenTerminal),
@@ -940,7 +984,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <DataContext.Provider
-      value={{ fees, sentiment, tokenTerminal, tvl, etf, protocolHistory, activity, earnings, coinGlass, coinGecko, differentials, unifiedTokens, isLoading, isLive, lastUpdated, errors, refetch: fetchAll }}
+      value={{ fees, sentiment, tokenTerminal, tvl, etf, protocolHistory, activity, earnings, coinGlass, coinGecko, sectorHistory, differentials, unifiedTokens, isLoading, isLive, lastUpdated, errors, refetch: fetchAll }}
     >
       {children}
     </DataContext.Provider>
