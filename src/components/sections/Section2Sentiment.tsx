@@ -564,6 +564,112 @@ export default function Section2Sentiment() {
   }, [hasLiveProtocolHistory, ctx.protocolHistory]);
 
   // -----------------------------------------------------------------------
+  // Derivatives Sentiment Score — composite of funding + L/S ratio signals
+  // -----------------------------------------------------------------------
+  const derivativesSentimentScore = useMemo(() => {
+    if (!ctx.coinGlass) return null;
+    const funding = ctx.coinGlass.fundingRate.currentRate;
+    const lsRatio = ctx.coinGlass.longShortRatio.currentRatio;
+    // Funding signal: positive = bullish (60-80), negative = bearish (20-40)
+    const fundingSignal = funding > 0.01 ? 75 : funding > 0 ? 60 : funding > -0.01 ? 40 : 25;
+    // L/S signal: > 1.2 = bullish, < 0.8 = bearish
+    const lsSignal = Math.min(Math.max(lsRatio * 50, 20), 80);
+    return Math.round((fundingSignal + lsSignal) / 2);
+  }, [ctx.coinGlass]);
+
+  const derivativesSentimentLabel = derivativesSentimentScore !== null
+    ? derivativesSentimentScore >= 60
+      ? "Bullish"
+      : derivativesSentimentScore >= 40
+      ? "Neutral"
+      : "Bearish"
+    : null;
+
+  const derivativesSentimentColor = derivativesSentimentScore !== null
+    ? derivativesSentimentScore >= 60
+      ? "#2e7d32"
+      : derivativesSentimentScore >= 40
+      ? "#d97706"
+      : "#9e2b25"
+    : "#666666";
+
+  // -----------------------------------------------------------------------
+  // Build derivatives sentiment overlay chart data
+  // Merges Fear & Greed history with BTC Funding Rate history
+  // -----------------------------------------------------------------------
+  const derivativesSentimentChartData = useMemo(() => {
+    if (!ctx.coinGlass) return null;
+
+    const fundingHistory = ctx.coinGlass.fundingRate.btc;
+    // Use live F&G history if available, otherwise fall back to static data
+    const fgHistory = ctx.sentiment?.fearGreed.history;
+
+    if (fgHistory && fgHistory.length > 0 && fundingHistory.length > 0) {
+      // Build a map of F&G values by date string (YYYY-MM-DD)
+      const fgMap = new Map<string, number>();
+      for (const entry of fgHistory) {
+        const dateKey = new Date(entry.timestamp).toISOString().slice(0, 10);
+        fgMap.set(dateKey, entry.value);
+      }
+
+      // Build chart points from funding rate history, matching F&G where available
+      const points: { date: string; fearGreed: number | null; fundingRate: number }[] = [];
+      for (const entry of fundingHistory) {
+        const d = new Date(entry.date * 1000);
+        const dateKey = d.toISOString().slice(0, 10);
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const label = `${monthNames[d.getUTCMonth()]} ${d.getUTCDate()}`;
+        points.push({
+          date: label,
+          fearGreed: fgMap.get(dateKey) ?? null,
+          fundingRate: +(entry.rate * 100).toFixed(4),
+        });
+      }
+
+      // Take last 90 data points for a readable chart
+      return points.slice(-90);
+    }
+
+    // Fallback: use static sentimentVsRevenueData for F&G, no funding overlay
+    if (fundingHistory.length > 0) {
+      const points: { date: string; fearGreed: number | null; fundingRate: number }[] = [];
+      const recentFunding = fundingHistory.slice(-90);
+      for (const entry of recentFunding) {
+        const d = new Date(entry.date * 1000);
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const label = `${monthNames[d.getUTCMonth()]} ${d.getUTCDate()}`;
+        points.push({
+          date: label,
+          fearGreed: null,
+          fundingRate: +(entry.rate * 100).toFixed(4),
+        });
+      }
+      return points;
+    }
+
+    return null;
+  }, [ctx.coinGlass, ctx.sentiment]);
+
+  // -----------------------------------------------------------------------
+  // Compute OI 7-day trend direction from history
+  // -----------------------------------------------------------------------
+  const btcOiTrend = useMemo(() => {
+    if (!ctx.coinGlass || ctx.coinGlass.openInterest.btc.length < 7) return null;
+    const hist = ctx.coinGlass.openInterest.btc;
+    const recent = hist[hist.length - 1].close;
+    const weekAgo = hist[Math.max(0, hist.length - 7)].close;
+    return recent >= weekAgo ? "up" : "down";
+  }, [ctx.coinGlass]);
+
+  const ethOiTrend = useMemo(() => {
+    if (!ctx.coinGlass || ctx.coinGlass.openInterest.eth.length < 7) return null;
+    const hist = ctx.coinGlass.openInterest.eth;
+    const recent = hist[hist.length - 1].close;
+    const weekAgo = hist[Math.max(0, hist.length - 7)].close;
+    return recent >= weekAgo ? "up" : "down";
+  }, [ctx.coinGlass]);
+
+  // -----------------------------------------------------------------------
   // Color-code the Fear & Greed value
   // -----------------------------------------------------------------------
   const fgColor =
@@ -676,6 +782,54 @@ export default function Section2Sentiment() {
             </p>
           </div>
 
+          {/* Compact derivatives context panel */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            <div className="bg-[#f8f8f8] border border-[#d4d4d4] p-3" style={{ borderRadius: 0 }}>
+              <p className="text-xs font-medium text-[#666666] mb-1">BTC OI</p>
+              <p className="text-base font-bold text-[#1a1a1a]">
+                ${(ctx.coinGlass.openInterest.btcCurrent / 1e9).toFixed(1)}B
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: btcOiTrend === "up" ? "#2e7d32" : "#9e2b25" }}>
+                7d {btcOiTrend === "up" ? "\u2191 Rising" : "\u2193 Falling"}
+              </p>
+            </div>
+            <div className="bg-[#f8f8f8] border border-[#d4d4d4] p-3" style={{ borderRadius: 0 }}>
+              <p className="text-xs font-medium text-[#666666] mb-1">ETH OI</p>
+              <p className="text-base font-bold text-[#1a1a1a]">
+                ${(ctx.coinGlass.openInterest.ethCurrent / 1e9).toFixed(1)}B
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: ethOiTrend === "up" ? "#2e7d32" : "#9e2b25" }}>
+                7d {ethOiTrend === "up" ? "\u2191 Rising" : "\u2193 Falling"}
+              </p>
+            </div>
+            <div className="bg-[#f8f8f8] border border-[#d4d4d4] p-3" style={{ borderRadius: 0 }}>
+              <p className="text-xs font-medium text-[#666666] mb-1">BTC Funding</p>
+              <p className="text-base font-bold" style={{
+                color: ctx.coinGlass.fundingRate.currentRate > 0.01
+                  ? "#2e7d32"
+                  : ctx.coinGlass.fundingRate.currentRate < -0.01
+                  ? "#9e2b25"
+                  : "#1a1a1a",
+              }}>
+                {(ctx.coinGlass.fundingRate.currentRate * 100).toFixed(4)}%
+              </p>
+              <p className="text-xs text-[#666666] mt-0.5">8h rate</p>
+            </div>
+            <div className="bg-[#f8f8f8] border border-[#d4d4d4] p-3" style={{ borderRadius: 0 }}>
+              <p className="text-xs font-medium text-[#666666] mb-1">L/S Ratio</p>
+              <p className="text-base font-bold text-[#1a1a1a]">
+                {ctx.coinGlass.longShortRatio.currentRatio.toFixed(2)}
+              </p>
+              <p className="text-xs mt-0.5" style={{
+                color: ctx.coinGlass.longShortRatio.currentRatio > 1
+                  ? "#2e7d32"
+                  : "#9e2b25",
+              }}>
+                {ctx.coinGlass.longShortRatio.currentRatio > 1 ? "\u2191 Longs dominant" : "\u2193 Shorts dominant"}
+              </p>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <StatCard
               label="BTC Open Interest"
@@ -745,6 +899,186 @@ export default function Section2Sentiment() {
 
           <DataSource sources={["CoinGlass (live)"]} />
         </Card>
+      )}
+
+      {/* ---- Derivatives Sentiment Overlay ---- */}
+      {ctx.coinGlass && (
+        <>
+          {/* Derivatives Sentiment Score */}
+          {derivativesSentimentScore !== null && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6">
+              <StatCard
+                label="Derivatives Sentiment"
+                value={`${derivativesSentimentScore} -- ${derivativesSentimentLabel}`}
+                subvalue="Composite of funding rate + long/short ratio"
+                change={
+                  derivativesSentimentScore >= 60
+                    ? "Derivatives tilted bullish"
+                    : derivativesSentimentScore >= 40
+                    ? "Derivatives neutral positioning"
+                    : "Derivatives tilted bearish"
+                }
+                changeType={
+                  derivativesSentimentScore >= 60
+                    ? "positive"
+                    : derivativesSentimentScore >= 40
+                    ? "neutral"
+                    : "negative"
+                }
+                className={`border-l-4`}
+              />
+            </div>
+          )}
+
+          {/* Derivatives Sentiment Overlay Chart */}
+          {derivativesSentimentChartData && derivativesSentimentChartData.length > 0 && (
+            <Card className="mb-10">
+              <div className="mb-6">
+                <h3 style={{ fontFamily: "Georgia, 'Times New Roman', serif" }} className="text-xl font-bold text-[#1a1a1a]">
+                  Derivatives Sentiment Overlay
+                </h3>
+                <p className="text-sm text-[#666666] mt-1 max-w-2xl">
+                  Fear &amp; Greed Index history overlaid with BTC funding rate to reveal
+                  how derivatives positioning aligns with broader market sentiment.
+                </p>
+              </div>
+
+              <ResponsiveContainer width="100%" height={380}>
+                <ComposedChart
+                  data={derivativesSentimentChartData}
+                  margin={{ top: 10, right: 20, left: 0, bottom: 20 }}
+                >
+                  <defs>
+                    <linearGradient id="fgOverlayGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#2e7d32" stopOpacity={0.35} />
+                      <stop offset="50%" stopColor="#d97706" stopOpacity={0.15} />
+                      <stop offset="100%" stopColor="#9e2b25" stopOpacity={0.35} />
+                    </linearGradient>
+                  </defs>
+
+                  <CartesianGrid stroke="#e8e8e8" strokeDasharray="3 3" />
+
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 11, fill: "#666666" }}
+                    tickLine={false}
+                    axisLine={{ stroke: "#d4d4d4" }}
+                    angle={-30}
+                    textAnchor="end"
+                    height={50}
+                    interval="preserveStartEnd"
+                  />
+
+                  {/* Left Y-axis: Fear & Greed (0-100) */}
+                  <YAxis
+                    yAxisId="fg"
+                    orientation="left"
+                    domain={[0, 100]}
+                    tick={{ fontSize: 11, fill: "#666666" }}
+                    tickLine={false}
+                    axisLine={{ stroke: "#d4d4d4" }}
+                    label={{
+                      value: "Fear & Greed",
+                      angle: -90,
+                      position: "insideLeft",
+                      offset: 10,
+                      style: { fill: "#666666", fontSize: 12, fontWeight: 600 },
+                    }}
+                  />
+
+                  {/* Right Y-axis: Funding Rate (%) */}
+                  <YAxis
+                    yAxisId="funding"
+                    orientation="right"
+                    tick={{ fontSize: 11, fill: "#3b82f6" }}
+                    tickLine={false}
+                    axisLine={{ stroke: "#93c5fd" }}
+                    tickFormatter={(v: number) => `${v.toFixed(3)}%`}
+                    label={{
+                      value: "Funding Rate (%)",
+                      angle: 90,
+                      position: "insideRight",
+                      offset: 10,
+                      style: { fill: "#3b82f6", fontSize: 12, fontWeight: 600 },
+                    }}
+                  />
+
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#ffffff",
+                      border: "1px solid #d4d4d4",
+                      borderRadius: 0,
+                      fontSize: 13,
+                    }}
+                    labelStyle={{ fontWeight: 600, color: "#1a1a1a" }}
+                    formatter={(value: number, name: string) => {
+                      if (name === "Fear & Greed") return [value, name];
+                      return [`${value.toFixed(4)}%`, name];
+                    }}
+                  />
+
+                  <Legend
+                    verticalAlign="top"
+                    height={36}
+                    iconType="plainline"
+                    wrapperStyle={{ fontSize: 13 }}
+                  />
+
+                  {/* Fear & Greed area fill with gradient (green=high, red=low) */}
+                  <Area
+                    yAxisId="fg"
+                    type="monotone"
+                    dataKey="fearGreed"
+                    name="Fear & Greed"
+                    stroke="#666666"
+                    strokeWidth={1.5}
+                    fill="url(#fgOverlayGradient)"
+                    connectNulls
+                    dot={false}
+                    activeDot={{ r: 4, stroke: "#1a1a1a", strokeWidth: 1 }}
+                  />
+
+                  {/* BTC Funding Rate line */}
+                  <Line
+                    yAxisId="funding"
+                    type="monotone"
+                    dataKey="fundingRate"
+                    name="BTC Funding Rate"
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4, stroke: "#fff", strokeWidth: 2 }}
+                  />
+
+                  {/* Neutral reference line for Fear & Greed at 50 */}
+                  <ReferenceLine
+                    yAxisId="fg"
+                    y={50}
+                    stroke="#999999"
+                    strokeDasharray="6 4"
+                    strokeWidth={1}
+                    label={{
+                      value: "Neutral (50)",
+                      position: "left",
+                      style: { fontSize: 10, fill: "#999999" },
+                    }}
+                  />
+
+                  {/* Zero reference line for funding rate */}
+                  <ReferenceLine
+                    yAxisId="funding"
+                    y={0}
+                    stroke="#93c5fd"
+                    strokeDasharray="6 4"
+                    strokeWidth={1}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+
+              <DataSource sources={["CoinGlass (live)", "Alternative.me (live)"]} />
+            </Card>
+          )}
+        </>
       )}
 
       {/* ---- THE MONEY CHART: Dual-Axis Divergence ---- */}

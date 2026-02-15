@@ -14,6 +14,8 @@ import {
   Legend,
 } from "recharts";
 import { useDataContext, LiveProtocolFee } from "@/lib/DataContext";
+import { findProtocolMapping } from "@/lib/protocolTokenMap";
+import { CategoryTreeTable } from "@/components/ui/CategoryTreeTable";
 import { ChartExport } from "@/components/ui/ChartExport";
 import {
   Card,
@@ -139,6 +141,12 @@ interface MergedProtocol {
   margin: number | null;
   change1d: number | null;
   change7d: number | null;
+  hasToken: boolean;
+  fdv: number | null;
+  psFdv: number | null;
+  revenueFdv: number | null;
+  mcapFdvRatio: number | null;
+  change1m: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -301,12 +309,91 @@ function CategoryLegend() {
 }
 
 // ---------------------------------------------------------------------------
+// Token vs Non-Token Summary Card
+// ---------------------------------------------------------------------------
+
+function TokenVsNonTokenSummary({ protocols }: { protocols: MergedProtocol[] }) {
+  const stats = useMemo(() => {
+    const tokenProjects = protocols.filter(p => p.hasToken);
+    const nonTokenProjects = protocols.filter(p => !p.hasToken);
+
+    const tokenRev = tokenProjects.reduce((s, p) => s + p.revenue24h, 0);
+    const nonTokenRev = nonTokenProjects.reduce((s, p) => s + p.revenue24h, 0);
+    const total = tokenRev + nonTokenRev;
+
+    const median = (arr: number[]) => {
+      if (arr.length === 0) return null;
+      const sorted = [...arr].sort((a, b) => a - b);
+      return sorted[Math.floor(sorted.length / 2)];
+    };
+
+    const tokenGrowth = median(tokenProjects.map(p => p.change7d).filter((v): v is number => v != null));
+    const nonTokenGrowth = median(nonTokenProjects.map(p => p.change7d).filter((v): v is number => v != null));
+
+    const psValues = tokenProjects.map(p => p.psRatio).filter((v): v is number => v != null && v < 1000);
+    const avgPS = psValues.length > 0 ? psValues.reduce((s, v) => s + v, 0) / psValues.length : null;
+
+    return {
+      tokenCount: tokenProjects.length,
+      nonTokenCount: nonTokenProjects.length,
+      tokenRev, nonTokenRev, total,
+      tokenPct: total > 0 ? (tokenRev / total) * 100 : 0,
+      nonTokenPct: total > 0 ? (nonTokenRev / total) * 100 : 0,
+      tokenGrowth, nonTokenGrowth, avgPS,
+    };
+  }, [protocols]);
+
+  return (
+    <Card>
+      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #e8e8e8", marginBottom: 16 }}>
+        <div style={{ flex: 1, padding: "16px 20px", borderRight: "1px solid #e8e8e8" }}>
+          <p style={{ fontSize: "11px", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "#999999", marginBottom: 8 }}>
+            Token Projects
+          </p>
+          <p style={{ fontSize: "28px", fontWeight: 700, fontFamily: "Georgia, serif", color: "#111111" }}>
+            {stats.tokenCount}
+          </p>
+          <p style={{ fontSize: "13px", color: "#666666", marginTop: 4 }}>
+            {formatCompact(stats.tokenRev * 365)} annualized ({stats.tokenPct.toFixed(0)}% of total)
+          </p>
+          <p style={{ fontSize: "12px", color: stats.tokenGrowth != null && stats.tokenGrowth >= 0 ? "#2e7d32" : "#9e2b25", marginTop: 4 }}>
+            Median 7d: {stats.tokenGrowth != null ? formatPct(stats.tokenGrowth) : "\u2014"}
+          </p>
+          {stats.avgPS != null && (
+            <p style={{ fontSize: "12px", color: "#666666", marginTop: 2 }}>
+              Avg P/S: {stats.avgPS.toFixed(1)}x
+            </p>
+          )}
+        </div>
+        <div style={{ flex: 1, padding: "16px 20px" }}>
+          <p style={{ fontSize: "11px", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "#999999", marginBottom: 8 }}>
+            Non-Token Projects
+          </p>
+          <p style={{ fontSize: "28px", fontWeight: 700, fontFamily: "Georgia, serif", color: "#111111" }}>
+            {stats.nonTokenCount}
+          </p>
+          <p style={{ fontSize: "13px", color: "#666666", marginTop: 4 }}>
+            {formatCompact(stats.nonTokenRev * 365)} annualized ({stats.nonTokenPct.toFixed(0)}% of total)
+          </p>
+          <p style={{ fontSize: "12px", color: stats.nonTokenGrowth != null && stats.nonTokenGrowth >= 0 ? "#2e7d32" : "#9e2b25", marginTop: 4 }}>
+            Median 7d: {stats.nonTokenGrowth != null ? formatPct(stats.nonTokenGrowth) : "\u2014"}
+          </p>
+        </div>
+      </div>
+      <DataSource sources={["DefiLlama (live)", "CoinGecko (live)"]} />
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
 export default function Section6Protocols() {
   const { fees, coinGecko, tvl, earnings, isLoading } = useDataContext();
   const [activeFilter, setActiveFilter] = useState<FilterCategory>("All");
+  const [tokenFilter, setTokenFilter] = useState<"all" | "token" | "no-token">("all");
+  const [viewMode, setViewMode] = useState<"flat" | "tree">("flat");
 
   // -----------------------------------------------------------------------
   // Merge data from all sources
@@ -329,14 +416,21 @@ export default function Section6Protocols() {
       const nameLower = p.name.toLowerCase();
       const displayLower = p.displayName.toLowerCase();
 
-      // Match CoinGecko token
-      const tokenMatch = tokens.find(
-        (t) =>
-          t.name.toLowerCase() === nameLower ||
-          t.id.toLowerCase() === nameLower ||
-          t.name.toLowerCase() === displayLower ||
-          t.id.toLowerCase() === displayLower
-      );
+      // Use central mapping for deterministic token matching
+      const mapping = findProtocolMapping(p.name);
+
+      // Match CoinGecko token - prefer mapping, fall back to name matching
+      const tokenMatch = mapping?.coinGeckoId
+        ? tokens.find(t => t.id === mapping.coinGeckoId)
+        : tokens.find(
+            (t) =>
+              t.name.toLowerCase() === nameLower ||
+              t.id.toLowerCase() === nameLower ||
+              t.name.toLowerCase() === displayLower ||
+              t.id.toLowerCase() === displayLower
+          );
+
+      const hasToken = mapping ? mapping.hasToken : (tokenMatch != null);
 
       // Match TVL
       const tvlMatch = tvlProtocols.find(
@@ -360,6 +454,11 @@ export default function Section6Protocols() {
         tvlVal != null && tvlVal > 0 ? revenueAnn / tvlVal : null;
       const margin = earningsMatch?.margin ?? null;
 
+      const fdv = tokenMatch?.fullyDilutedValuation ?? null;
+      const psFdv = fdv != null && revenueAnn > 0 ? fdv / revenueAnn : null;
+      const revenueFdv = fdv != null && fdv > 0 ? revenueAnn / fdv : null;
+      const mcapFdvRatio = (marketCap != null && fdv != null && fdv > 0) ? marketCap / fdv : null;
+
       return {
         rank: idx + 1,
         name: p.name,
@@ -377,6 +476,12 @@ export default function Section6Protocols() {
         margin,
         change1d: p.change_1d,
         change7d: p.change_7d,
+        hasToken,
+        fdv,
+        psFdv,
+        revenueFdv,
+        mcapFdvRatio,
+        change1m: p.total30d && p.total24h ? ((p.total24h * 30 / p.total30d) - 1) * 100 : null,
       };
     });
   }, [fees, coinGecko, tvl, earnings]);
@@ -385,9 +490,17 @@ export default function Section6Protocols() {
   // Filtered protocols
   // -----------------------------------------------------------------------
   const filteredProtocols = useMemo(() => {
-    if (activeFilter === "All") return mergedProtocols;
-    return mergedProtocols.filter((p) => p.categoryGroup === activeFilter);
-  }, [mergedProtocols, activeFilter]);
+    let result = mergedProtocols;
+    if (activeFilter !== "All") {
+      result = result.filter(p => p.categoryGroup === activeFilter);
+    }
+    if (tokenFilter === "token") {
+      result = result.filter(p => p.hasToken);
+    } else if (tokenFilter === "no-token") {
+      result = result.filter(p => !p.hasToken);
+    }
+    return result;
+  }, [mergedProtocols, activeFilter, tokenFilter]);
 
   // -----------------------------------------------------------------------
   // Scatter data: Revenue vs Market Cap
@@ -470,17 +583,21 @@ export default function Section6Protocols() {
     return filteredProtocols.map((p) => ({
       rank: p.rank,
       protocol: p.displayName,
+      has_token: p.hasToken,
       category: p.categoryGroup,
       "revenue_24h": p.revenue24h,
       "revenue_30d": p.revenue30d ?? "",
       "revenue_ann": p.revenueAnn,
       "market_cap": p.marketCap ?? "",
       "ps_ratio": p.psRatio ?? "",
+      fdv: p.fdv ?? "",
+      "ps_fdv": p.psFdv ?? "",
       tvl: p.tvl ?? "",
       "revenue_tvl": p.revenueTvl ?? "",
       margin: p.margin ?? "",
       "change_1d": p.change1d ?? "",
       "change_7d": p.change7d ?? "",
+      "change_30d": p.change1m ?? "",
     }));
   }, [filteredProtocols]);
 
@@ -517,6 +634,11 @@ export default function Section6Protocols() {
         title="Protocol Explorer"
         subtitle="A comprehensive view of protocol-level economics. Compare revenue, valuations, capital efficiency, and momentum across the top 50 fee-generating protocols."
       />
+
+      {/* ================================================================ */}
+      {/* Token vs Non-Token Summary                                       */}
+      {/* ================================================================ */}
+      <TokenVsNonTokenSummary protocols={mergedProtocols} />
 
       {/* ================================================================ */}
       {/* A. Protocol Comparison Table                                     */}
@@ -559,8 +681,75 @@ export default function Section6Protocols() {
             ))}
           </div>
 
+          {/* Token filter row */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            {(["all", "token", "no-token"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setTokenFilter(f)}
+                className="px-3 py-1.5 transition-colors duration-150"
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase" as const,
+                  border: "1px solid",
+                  borderColor: tokenFilter === f ? "#111111" : "#d4d4d4",
+                  backgroundColor: tokenFilter === f ? "#111111" : "#ffffff",
+                  color: tokenFilter === f ? "#ffffff" : "#666666",
+                  borderRadius: 0,
+                  cursor: "pointer",
+                }}
+              >
+                {f === "all" ? "All Projects" : f === "token" ? "Token" : "No Token"}
+              </button>
+            ))}
+          </div>
+
+          {/* View mode toggle */}
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setViewMode("flat")}
+              className="px-3 py-1.5 transition-colors duration-150"
+              style={{
+                fontSize: "11px",
+                fontWeight: 600,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase" as const,
+                border: "1px solid",
+                borderColor: viewMode === "flat" ? "#111111" : "#d4d4d4",
+                backgroundColor: viewMode === "flat" ? "#111111" : "#ffffff",
+                color: viewMode === "flat" ? "#ffffff" : "#666666",
+                borderRadius: 0,
+                cursor: "pointer",
+              }}
+            >
+              Table View
+            </button>
+            <button
+              onClick={() => setViewMode("tree")}
+              className="px-3 py-1.5 transition-colors duration-150"
+              style={{
+                fontSize: "11px",
+                fontWeight: 600,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase" as const,
+                border: "1px solid",
+                borderColor: viewMode === "tree" ? "#111111" : "#d4d4d4",
+                backgroundColor: viewMode === "tree" ? "#111111" : "#ffffff",
+                color: viewMode === "tree" ? "#ffffff" : "#666666",
+                borderRadius: 0,
+                cursor: "pointer",
+              }}
+            >
+              Category Tree
+            </button>
+          </div>
+
           {isLoading ? (
             <TableSkeleton />
+          ) : viewMode === "tree" ? (
+            <CategoryTreeTable protocols={filteredProtocols} />
           ) : (
             <div className="overflow-x-auto">
               <table className="financial-table w-full" style={{ borderCollapse: "collapse" }}>
@@ -574,11 +763,14 @@ export default function Section6Protocols() {
                     <th style={{ textAlign: "right", minWidth: 100 }}>Revenue (Ann.)</th>
                     <th style={{ textAlign: "right", minWidth: 100 }}>Market Cap</th>
                     <th style={{ textAlign: "right", minWidth: 70 }}>P/S</th>
+                    <th style={{ textAlign: "right", minWidth: 90 }}>FDV</th>
+                    <th style={{ textAlign: "right", minWidth: 80 }}>P/S (FDV)</th>
                     <th style={{ textAlign: "right", minWidth: 90 }}>TVL</th>
                     <th style={{ textAlign: "right", minWidth: 90 }}>Rev/TVL</th>
                     <th style={{ textAlign: "right", minWidth: 60 }}>Margin</th>
                     <th style={{ textAlign: "right", minWidth: 70 }}>24h</th>
                     <th style={{ textAlign: "right", minWidth: 70 }}>7d</th>
+                    <th style={{ textAlign: "right", minWidth: 70 }}>30d</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -602,6 +794,9 @@ export default function Section6Protocols() {
                         >
                           {p.displayName}
                         </a>
+                        {p.hasToken && (
+                          <span style={{ fontSize: "9px", color: "#3b82f6", marginLeft: 4, verticalAlign: "super" }}>●</span>
+                        )}
                         <div
                           style={{
                             fontSize: "10px",
@@ -650,6 +845,12 @@ export default function Section6Protocols() {
                         {formatRatio(p.psRatio)}
                       </td>
                       <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        {formatCompact(p.fdv)}
+                      </td>
+                      <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        {formatRatio(p.psFdv)}
+                      </td>
+                      <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                         {formatCompact(p.tvl)}
                       </td>
                       <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
@@ -690,12 +891,27 @@ export default function Section6Protocols() {
                       >
                         {formatPct(p.change7d)}
                       </td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          fontVariantNumeric: "tabular-nums",
+                          color:
+                            p.change1m == null
+                              ? "#999999"
+                              : p.change1m >= 0
+                              ? "#2e7d32"
+                              : "#9e2b25",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {formatPct(p.change1m)}
+                      </td>
                     </tr>
                   ))}
                   {filteredProtocols.length === 0 && (
                     <tr>
                       <td
-                        colSpan={13}
+                        colSpan={16}
                         style={{
                           textAlign: "center",
                           padding: "24px 0",

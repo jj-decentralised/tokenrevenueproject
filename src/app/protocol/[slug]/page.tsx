@@ -121,6 +121,108 @@ const PROTOCOL_MAP: Record<string, ProtocolMapping> = {
     tokenTerminal: "base",
     displayName: "Base",
   },
+  pancakeswap: {
+    defiLlama: "pancakeswap",
+    coinGecko: "pancakeswap-token",
+    tokenTerminal: "pancakeswap",
+    displayName: "PancakeSwap",
+  },
+  "curve-finance": {
+    defiLlama: "curve-finance",
+    coinGecko: "curve-dao-token",
+    tokenTerminal: "curve",
+    displayName: "Curve Finance",
+  },
+  aerodrome: {
+    defiLlama: "aerodrome",
+    coinGecko: "aerodrome-finance",
+    tokenTerminal: "aerodrome",
+    displayName: "Aerodrome",
+  },
+  compound: {
+    defiLlama: "compound",
+    coinGecko: "compound-governance-token",
+    tokenTerminal: "compound",
+    displayName: "Compound",
+  },
+  morpho: {
+    defiLlama: "morpho",
+    coinGecko: "morpho",
+    tokenTerminal: "morpho",
+    displayName: "Morpho",
+  },
+  gmx: {
+    defiLlama: "gmx",
+    coinGecko: "gmx",
+    tokenTerminal: "gmx",
+    displayName: "GMX",
+  },
+  dydx: {
+    defiLlama: "dydx",
+    coinGecko: "dydx-chain",
+    tokenTerminal: "dydx",
+    displayName: "dYdX",
+  },
+  jito: {
+    defiLlama: "jito",
+    coinGecko: "jito-governance-token",
+    tokenTerminal: "jito",
+    displayName: "Jito",
+  },
+  ethena: {
+    defiLlama: "ethena",
+    coinGecko: "ethena",
+    tokenTerminal: "ethena",
+    displayName: "Ethena",
+  },
+  tron: {
+    defiLlama: "tron",
+    coinGecko: "tron",
+    tokenTerminal: "tron",
+    displayName: "Tron",
+  },
+  avalanche: {
+    defiLlama: "avalanche",
+    coinGecko: "avalanche-2",
+    tokenTerminal: "avalanche",
+    displayName: "Avalanche",
+  },
+  arbitrum: {
+    defiLlama: "arbitrum",
+    coinGecko: "arbitrum",
+    tokenTerminal: "arbitrum",
+    displayName: "Arbitrum",
+  },
+  optimism: {
+    defiLlama: "optimism",
+    coinGecko: "optimism",
+    tokenTerminal: "optimism",
+    displayName: "Optimism",
+  },
+  polygon: {
+    defiLlama: "polygon",
+    coinGecko: "matic-network",
+    tokenTerminal: "polygon",
+    displayName: "Polygon",
+  },
+  synthetix: {
+    defiLlama: "synthetix",
+    coinGecko: "havven",
+    tokenTerminal: "synthetix",
+    displayName: "Synthetix",
+  },
+  sushiswap: {
+    defiLlama: "sushiswap",
+    coinGecko: "sushi",
+    tokenTerminal: "sushiswap",
+    displayName: "SushiSwap",
+  },
+  "rocket-pool": {
+    defiLlama: "rocket-pool",
+    coinGecko: "rocket-pool",
+    tokenTerminal: "rocket-pool",
+    displayName: "Rocket Pool",
+  },
 };
 
 // ============================================================
@@ -688,6 +790,59 @@ export default function ProtocolProfilePage() {
           />
         </div>
 
+        {/* FDV-based metrics row (only for protocols with tokens) */}
+        {mapping.coinGecko && coinGeckoToken && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+            <StatCard
+              label="Fully Diluted Valuation"
+              value={fdv ? formatUSDCompact(fdv) : "N/A"}
+              subvalue={marketCap ? `MCap: ${formatUSDCompact(marketCap)}` : undefined}
+            />
+            <StatCard
+              label="MCap / FDV"
+              value={
+                marketCap && fdv && fdv > 0
+                  ? `${((marketCap / fdv) * 100).toFixed(0)}%`
+                  : "N/A"
+              }
+              subvalue={
+                marketCap && fdv && fdv > 0
+                  ? `${((marketCap / fdv) * 100).toFixed(0)}% of tokens circulating`
+                  : undefined
+              }
+              changeType={
+                marketCap && fdv && fdv > 0
+                  ? (marketCap / fdv) >= 0.5
+                    ? "positive"
+                    : "neutral"
+                  : "neutral"
+              }
+            />
+            <StatCard
+              label="Rev / FDV"
+              value={
+                annualizedRevenue && fdv && fdv > 0
+                  ? `${((annualizedRevenue / fdv) * 100).toFixed(2)}%`
+                  : "N/A"
+              }
+              subvalue={
+                annualizedRevenue && fdv && fdv > 0
+                  ? "Revenue yield on fully diluted basis"
+                  : undefined
+              }
+              changeType={
+                annualizedRevenue && fdv && fdv > 0
+                  ? (annualizedRevenue / fdv) >= 0.05
+                    ? "positive"
+                    : (annualizedRevenue / fdv) >= 0.01
+                    ? "neutral"
+                    : "negative"
+                  : "neutral"
+              }
+            />
+          </div>
+        )}
+
         {/* Extra stats row: TVL and activity if available */}
         {(tvlData || activityData) && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
@@ -931,6 +1086,27 @@ export default function ProtocolProfilePage() {
 
             <DataSource sources={["CoinGecko"]} />
           </Card>
+        </section>
+      )}
+
+      {/* ============================================ */}
+      {/* 4b. TOKEN ECONOMICS INSIGHT                  */}
+      {/* ============================================ */}
+      {coinGeckoToken && coinGeckoToken.fullyDilutedValuation && (
+        <section className="mb-12">
+          <InsightBox title="Token Economics" type="insight">
+            <p>
+              {mapping.displayName} has a market cap of {formatUSDCompact(coinGeckoToken.marketCap)}{" "}
+              against a fully diluted valuation of {formatUSDCompact(coinGeckoToken.fullyDilutedValuation)},{" "}
+              suggesting {((coinGeckoToken.marketCap / coinGeckoToken.fullyDilutedValuation) * 100).toFixed(0)}%{" "}
+              of tokens are in circulation. At current annualized revenue of {formatUSDCompact(annualizedRevenue ?? 0)},{" "}
+              the protocol trades at{" "}
+              {annualizedRevenue && annualizedRevenue > 0
+                ? `${(coinGeckoToken.fullyDilutedValuation / annualizedRevenue).toFixed(1)}x`
+                : "N/A"}{" "}
+              on a fully diluted P/S basis.
+            </p>
+          </InsightBox>
         </section>
       )}
 

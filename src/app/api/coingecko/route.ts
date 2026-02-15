@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getExpandedTokenIds } from "@/lib/protocolTokenMap";
 
 // ----------------------------------------------------------------
 // GET /api/coingecko
@@ -19,17 +20,7 @@ export const revalidate = 1800; // 30 minutes
 
 // ---------- constants ----------
 
-const TOKEN_IDS = [
-  "ethereum",
-  "solana",
-  "uniswap",
-  "aave",
-  "lido-dao",
-  "maker",
-  "jupiter-exchange-solana",
-  "raydium",
-  "hyperliquid",
-];
+const TOKEN_IDS = getExpandedTokenIds();
 
 // ---------- response types ----------
 
@@ -52,6 +43,11 @@ interface TokenData {
   priceChange30d: number;
   fullyDilutedValuation: number | null;
   totalVolume24h: number;
+  marketCapRank: number | null;
+  ath: number | null;
+  atl: number | null;
+  athChangePercentage: number | null;
+  circulatingSupply: number | null;
 }
 
 interface HistoricalMarketCapEntry {
@@ -138,7 +134,8 @@ async function fetchGlobalData(): Promise<GlobalData> {
 async function fetchTokenData(): Promise<TokenData[]> {
   const base = getBaseUrl();
   const ids = TOKEN_IDS.join(",");
-  const url = `${base}/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&per_page=50&page=1&sparkline=false&price_change_percentage=24h,7d,30d`;
+  const perPage = Math.min(Math.max(TOKEN_IDS.length, 50), 250);
+  const url = `${base}/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&per_page=${perPage}&page=1&sparkline=false&price_change_percentage=24h,7d,30d`;
 
   const data = (await fetchJSON(url)) as Record<string, unknown>[];
 
@@ -155,6 +152,11 @@ async function fetchTokenData(): Promise<TokenData[]> {
     priceChange30d: safeNum(coin.price_change_percentage_30d_in_currency),
     fullyDilutedValuation: safeNumOrNull(coin.fully_diluted_valuation),
     totalVolume24h: safeNum(coin.total_volume),
+    marketCapRank: safeNumOrNull(coin.market_cap_rank),
+    ath: safeNumOrNull(coin.ath),
+    atl: safeNumOrNull(coin.atl),
+    athChangePercentage: safeNumOrNull(coin.ath_change_percentage),
+    circulatingSupply: safeNumOrNull(coin.circulating_supply),
   }));
 }
 

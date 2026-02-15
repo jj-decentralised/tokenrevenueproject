@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
+import { PROTOCOL_TOKEN_MAP } from "@/lib/protocolTokenMap";
 
 // ============================================================
 // Types for live API responses
@@ -154,6 +155,11 @@ export interface LiveCoinGeckoData {
     priceChange30d: number;
     fullyDilutedValuation: number | null;
     totalVolume24h: number;
+    marketCapRank: number | null;
+    ath: number | null;
+    atl: number | null;
+    athChangePercentage: number | null;
+    circulatingSupply: number | null;
   }>;
   historicalMarketCap: Array<{ date: number; marketCap: number }>;
   fetchedAt: string;
@@ -626,6 +632,11 @@ async function fetchCoinGecko(): Promise<LiveCoinGeckoData | null> {
           priceChange30d: Number(t.priceChange30d ?? 0),
           fullyDilutedValuation: t.fullyDilutedValuation != null ? Number(t.fullyDilutedValuation) : null,
           totalVolume24h: Number(t.totalVolume24h ?? 0),
+          marketCapRank: t.marketCapRank != null ? Number(t.marketCapRank) : null,
+          ath: t.ath != null ? Number(t.ath) : null,
+          atl: t.atl != null ? Number(t.atl) : null,
+          athChangePercentage: t.athChangePercentage != null ? Number(t.athChangePercentage) : null,
+          circulatingSupply: t.circulatingSupply != null ? Number(t.circulatingSupply) : null,
         }))
       : [];
 
@@ -897,9 +908,33 @@ export function useProtocolLookup() {
       }
     }
 
+    // Build a reverse index: coinGeckoId -> protocol map key
+    const cgIdToProtocolKey = new Map<string, string>();
+    for (const [mapKey, mapping] of Object.entries(PROTOCOL_TOKEN_MAP)) {
+      if (mapping.coinGeckoId) {
+        cgIdToProtocolKey.set(mapping.coinGeckoId, mapKey);
+      }
+    }
+
     // Index CoinGecko tokens
     if (ctx.coinGecko?.tokens) {
       for (const t of ctx.coinGecko.tokens) {
+        // Try mapping.coinGeckoId first for reliable matching
+        const protocolKey = cgIdToProtocolKey.get(t.id);
+        if (protocolKey && map.has(protocolKey)) {
+          map.get(protocolKey)!.coinGecko = t;
+          continue;
+        }
+        // Also try matching the defiLlamaName from the mapping
+        const mapping = PROTOCOL_TOKEN_MAP[protocolKey ?? ""];
+        if (mapping) {
+          const dlKey = mapping.defiLlamaName.toLowerCase();
+          if (map.has(dlKey)) {
+            map.get(dlKey)!.coinGecko = t;
+            continue;
+          }
+        }
+        // Fallback: match by token name
         const key = t.name.toLowerCase();
         if (map.has(key)) {
           map.get(key)!.coinGecko = t;
