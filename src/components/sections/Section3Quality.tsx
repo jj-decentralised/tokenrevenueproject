@@ -19,6 +19,8 @@ import {
   Line,
   TooltipProps,
 } from "recharts";
+import { useDataContext, groupByCategory } from "@/lib/DataContext";
+import { ChartExport } from "@/components/ui/ChartExport";
 import {
   sectorBreakdownTimeSeries,
   h1_2025_sectorBreakdown,
@@ -53,6 +55,46 @@ const SECTOR_LABELS: Record<string, string> = {
 
 const SECTOR_KEYS = Object.keys(SECTOR_LABELS);
 
+/**
+ * Map DefiLlama protocol categories to our internal sector keys.
+ * DefiLlama uses categories like "Dexes", "Lending", "Derivatives", etc.
+ */
+const CATEGORY_TO_SECTOR: Record<string, string> = {
+  Dexes: "defi",
+  Lending: "defi",
+  Derivatives: "defi",
+  "Liquid Staking": "defi",
+  Yield: "defi",
+  Bridge: "defi",
+  CDP: "defi",
+  "Yield Aggregator": "defi",
+  Liquidations: "defi",
+  "Leveraged Farming": "defi",
+  Options: "defi",
+  "Insurance": "defi",
+  "Prediction Market": "consumer",
+  CEX: "exchanges",
+  Chain: "blockchains",
+  EVM: "blockchains",
+  Rollup: "blockchains",
+  Stablecoins: "stablecoins",
+  Wallet: "wallets",
+  "NFT Marketplace": "consumer",
+  "NFT Lending": "consumer",
+  Gaming: "consumer",
+  Social: "consumer",
+  "DePIN": "depin",
+  Launchpad: "consumer",
+  Middleware: "other",
+  Oracle: "other",
+  Other: "other",
+};
+
+/** Map a DefiLlama category string to our sector key. */
+function mapCategoryToSector(category: string): string {
+  return CATEGORY_TO_SECTOR[category] ?? "other";
+}
+
 function formatBillions(v: number) {
   return `$${v.toFixed(1)}B`;
 }
@@ -65,6 +107,37 @@ function formatMillions(v: number) {
 function pctChange(peak: number, current: number) {
   if (peak === 0) return 0;
   return Math.round(((current - peak) / peak) * 100);
+}
+
+// ---------------------------------------------------------------------------
+// Pie chart color palette for live data sectors
+// ---------------------------------------------------------------------------
+
+const PIE_COLORS_LIVE: Record<string, string> = {
+  "DeFi/Finance": "#3b82f6",
+  Dexes: "#3b82f6",
+  Lending: "#2563eb",
+  Derivatives: "#1d4ed8",
+  "Liquid Staking": "#60a5fa",
+  Yield: "#93c5fd",
+  Bridge: "#7dd3fc",
+  CDP: "#38bdf8",
+  Chain: "#8b5cf6",
+  EVM: "#a78bfa",
+  Rollup: "#7c3aed",
+  Blockchains: "#8b5cf6",
+  Stablecoins: "#10b981",
+  Wallet: "#06b6d4",
+  Wallets: "#06b6d4",
+  CEX: "#8b5cf6",
+  Exchanges: "#8b5cf6",
+  Consumer: "#f59e0b",
+  DePIN: "#ec4899",
+  Other: "#94a3b8",
+};
+
+function getPieColor(name: string): string {
+  return PIE_COLORS_LIVE[name] ?? SECTOR_COLORS[name.toLowerCase()] ?? "#94a3b8";
 }
 
 // ---------------------------------------------------------------------------
@@ -228,37 +301,263 @@ function StatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 export default function Section3Quality() {
-  // Prepare area chart data with string year label
-  const areaData = useMemo(
-    () =>
-      sectorBreakdownTimeSeries.map((d) => ({
-        ...d,
-        name: d.year.toString(),
-      })),
-    []
-  );
+  const ctx = useDataContext();
+  const hasLiveFees = !!(ctx.fees?.protocols && ctx.fees.protocols.length > 0);
 
-  // Pie chart data
-  const pieData = useMemo(
-    () =>
-      h1_2025_sectorBreakdown.map((d) => ({
-        ...d,
-        name: d.sector,
-      })),
-    []
-  );
+  // ----- Live data: group protocols by DefiLlama category -----
+  const liveCategoryGroups = useMemo(() => {
+    if (!hasLiveFees) return null;
+    return groupByCategory(ctx.fees!.protocols);
+  }, [hasLiveFees, ctx.fees]);
 
-  // Exchange chart data
-  const exchangeData = useMemo(
-    () =>
-      exchangeRevenueHistory.map((d) => ({
-        ...d,
-        name: d.year.toString(),
-      })),
-    []
-  );
+  // ----- Pie chart data: live DefiLlama categories or static fallback -----
+  const pieData = useMemo(() => {
+    if (liveCategoryGroups) {
+      // Build pie slices from live DefiLlama category data.
+      // Group into our sector buckets for consistency.
+      const sectorTotals: Record<string, number> = {};
+      for (const [cat, data] of Object.entries(liveCategoryGroups)) {
+        const sector = mapCategoryToSector(cat);
+        const sectorLabel =
+          sector === "defi"
+            ? "DeFi/Finance"
+            : sector === "exchanges"
+            ? "Exchanges"
+            : sector === "stablecoins"
+            ? "Stablecoins"
+            : sector === "blockchains"
+            ? "Blockchains"
+            : sector === "consumer"
+            ? "Consumer"
+            : sector === "wallets"
+            ? "Wallets"
+            : sector === "depin"
+            ? "DePIN"
+            : "Other";
+        sectorTotals[sectorLabel] = (sectorTotals[sectorLabel] || 0) + data.total30d;
+      }
 
-  // Stablecoin + rate data
+      const total = Object.values(sectorTotals).reduce((s, v) => s + v, 0);
+      const entries = Object.entries(sectorTotals)
+        .filter(([, v]) => v > 0)
+        .sort((a, b) => b[1] - a[1])
+        .map(([sector, value]) => ({
+          sector,
+          name: sector,
+          // Convert to billions for consistency with static data display
+          value: value / 1e9,
+          share: total > 0 ? Math.round((value / total) * 100) : 0,
+          color: getPieColor(sector),
+        }));
+
+      return entries;
+    }
+
+    // Fallback to static data
+    return h1_2025_sectorBreakdown.map((d) => ({
+      ...d,
+      name: d.sector,
+    }));
+  }, [liveCategoryGroups]);
+
+  // ----- Sector detail list (for the side panel) -----
+  const sectorDetailList = useMemo(() => {
+    if (liveCategoryGroups) {
+      const sectorTotals: Record<string, number> = {};
+      for (const [cat, data] of Object.entries(liveCategoryGroups)) {
+        const sector = mapCategoryToSector(cat);
+        const sectorLabel =
+          sector === "defi"
+            ? "DeFi/Finance"
+            : sector === "exchanges"
+            ? "Exchanges"
+            : sector === "stablecoins"
+            ? "Stablecoins"
+            : sector === "blockchains"
+            ? "Blockchains"
+            : sector === "consumer"
+            ? "Consumer"
+            : sector === "wallets"
+            ? "Wallets"
+            : sector === "depin"
+            ? "DePIN"
+            : "Other";
+        sectorTotals[sectorLabel] = (sectorTotals[sectorLabel] || 0) + data.total30d;
+      }
+      const total = Object.values(sectorTotals).reduce((s, v) => s + v, 0);
+
+      return Object.entries(sectorTotals)
+        .filter(([, v]) => v > 0)
+        .sort((a, b) => b[1] - a[1])
+        .map(([sector, value]) => ({
+          sector,
+          value: value / 1e9,
+          share: total > 0 ? Math.round((value / total) * 100) : 0,
+          color: getPieColor(sector),
+          // YoY growth not available from live 30d snapshot; show N/A
+          yoyGrowth: null as number | null,
+        }));
+    }
+
+    return h1_2025_sectorBreakdown.map((d) => ({
+      sector: d.sector,
+      value: d.value,
+      share: d.share,
+      color: d.color,
+      yoyGrowth: d.yoyGrowth as number | null,
+    }));
+  }, [liveCategoryGroups]);
+
+  // ----- Stacked area chart: static base + live-updated latest period -----
+  const areaData = useMemo(() => {
+    const base = sectorBreakdownTimeSeries.map((d) => ({
+      ...d,
+      name: d.year.toString(),
+    }));
+
+    if (liveCategoryGroups) {
+      // Build a live "latest" row from grouped protocol fees.
+      const liveSectorTotals: Record<string, number> = {};
+      for (const key of SECTOR_KEYS) {
+        liveSectorTotals[key] = 0;
+      }
+      for (const [cat, data] of Object.entries(liveCategoryGroups)) {
+        const sector = mapCategoryToSector(cat);
+        if (liveSectorTotals[sector] !== undefined) {
+          // Annualize from 30d data: (total30d / 30) * 365, convert to billions
+          liveSectorTotals[sector] += (data.total30d / 30) * 365 / 1e9;
+        }
+      }
+
+      // Update the most recent period (last row) with live-derived annualized figures
+      const lastIdx = base.length - 1;
+      if (lastIdx >= 0) {
+        const updated = { ...base[lastIdx] };
+        for (const key of SECTOR_KEYS) {
+          if (liveSectorTotals[key] > 0) {
+            (updated as Record<string, unknown>)[key] = Math.round(liveSectorTotals[key] * 10) / 10;
+          }
+        }
+        base[lastIdx] = updated;
+      }
+    }
+
+    return base;
+  }, [liveCategoryGroups]);
+
+  // ----- Exchange deep-dive: live DEX/CEX from protocols or static -----
+  const exchangeData = useMemo(() => {
+    const base = exchangeRevenueHistory.map((d) => ({
+      ...d,
+      name: d.year.toString(),
+    }));
+
+    if (hasLiveFees && ctx.fees) {
+      // Filter for Dexes and Derivatives (on-chain exchange) protocols
+      const dexProtocols = ctx.fees.protocols.filter(
+        (p) => p.category === "Dexes" || p.category === "Derivatives"
+      );
+      const cexProtocols = ctx.fees.protocols.filter(
+        (p) => p.category === "CEX"
+      );
+
+      const dexAnnualized =
+        dexProtocols.reduce((s, p) => s + (p.total30d || 0), 0) / 30 * 365 / 1e9;
+      const cexAnnualized =
+        cexProtocols.reduce((s, p) => s + (p.total30d || 0), 0) / 30 * 365 / 1e9;
+
+      // Only update the latest row if we got meaningful DEX data
+      if (dexAnnualized > 0) {
+        const lastIdx = base.length - 1;
+        if (lastIdx >= 0) {
+          const total = dexAnnualized + cexAnnualized;
+          const cexDom = total > 0 ? Math.round((cexAnnualized / total) * 100) : base[lastIdx].cexDominance;
+          base[lastIdx] = {
+            ...base[lastIdx],
+            dex: Math.round(dexAnnualized * 10) / 10,
+            cex: cexAnnualized > 0 ? Math.round(cexAnnualized * 10) / 10 : base[lastIdx].cex,
+            total: Math.round(total * 10) / 10 || base[lastIdx].total,
+            cexDominance: cexDom,
+          };
+        }
+      }
+    }
+
+    return base;
+  }, [hasLiveFees, ctx.fees]);
+
+  // ----- Exchange history for dominance sidebar: live-updated latest -----
+  const exchangeHistoryForDominance = useMemo(() => {
+    const base = [...exchangeRevenueHistory];
+
+    if (hasLiveFees && ctx.fees) {
+      const dexProtocols = ctx.fees.protocols.filter(
+        (p) => p.category === "Dexes" || p.category === "Derivatives"
+      );
+      const cexProtocols = ctx.fees.protocols.filter(
+        (p) => p.category === "CEX"
+      );
+
+      const dexAnnualized =
+        dexProtocols.reduce((s, p) => s + (p.total30d || 0), 0) / 30 * 365 / 1e9;
+      const cexAnnualized =
+        cexProtocols.reduce((s, p) => s + (p.total30d || 0), 0) / 30 * 365 / 1e9;
+
+      if (dexAnnualized > 0) {
+        const lastIdx = base.length - 1;
+        if (lastIdx >= 0) {
+          const total = dexAnnualized + cexAnnualized;
+          base[lastIdx] = {
+            ...base[lastIdx],
+            dex: Math.round(dexAnnualized * 10) / 10,
+            cex: cexAnnualized > 0 ? Math.round(cexAnnualized * 10) / 10 : base[lastIdx].cex,
+            total: Math.round(total * 10) / 10 || base[lastIdx].total,
+            cexDominance: total > 0 ? Math.round((cexAnnualized / total) * 100) : base[lastIdx].cexDominance,
+          };
+        }
+      }
+    }
+
+    return base;
+  }, [hasLiveFees, ctx.fees]);
+
+  // ----- Live stat cards: compute from live data when available -----
+  const liveStats = useMemo(() => {
+    if (!liveCategoryGroups) {
+      return null; // Will use static values
+    }
+
+    // Total across all sectors
+    const allTotal30d = Object.values(liveCategoryGroups).reduce(
+      (s, g) => s + g.total30d,
+      0
+    );
+
+    // Stablecoins share
+    const stablecoinTotal = liveCategoryGroups["Stablecoins"]?.total30d ?? 0;
+    const stablecoinShare = allTotal30d > 0 ? Math.round((stablecoinTotal / allTotal30d) * 100) : 0;
+
+    // DEX vs CEX
+    const dexTotal =
+      (liveCategoryGroups["Dexes"]?.total30d ?? 0) +
+      (liveCategoryGroups["Derivatives"]?.total30d ?? 0);
+    const cexTotal = liveCategoryGroups["CEX"]?.total30d ?? 0;
+    const exchangeTotal = dexTotal + cexTotal;
+    const dexShare = exchangeTotal > 0 ? Math.round((dexTotal / exchangeTotal) * 100) : 55;
+
+    // Consumer share
+    let consumerTotal = 0;
+    for (const [cat, data] of Object.entries(liveCategoryGroups)) {
+      if (mapCategoryToSector(cat) === "consumer") {
+        consumerTotal += data.total30d;
+      }
+    }
+    const consumerShare = allTotal30d > 0 ? Math.round((consumerTotal / allTotal30d) * 100) : 6;
+
+    return { stablecoinShare, dexShare, consumerShare };
+  }, [liveCategoryGroups]);
+
+  // Stablecoin + rate data — editorial/static (interest income breakdowns not in DefiLlama)
   const stablecoinData = useMemo(
     () =>
       stablecoinRevenueBreakdown.map((d) => ({
@@ -274,6 +573,9 @@ export default function Section3Quality() {
     (latestStablecoin.interestIncome / latestStablecoin.total) * 100
   );
 
+  // ----- Live data indicator -----
+  const isLive = hasLiveFees;
+
   return (
     <section className="py-16 px-4">
       <div className="max-w-6xl mx-auto">
@@ -286,15 +588,31 @@ export default function Section3Quality() {
           subtitle="Not all crypto revenue is created equal. Sector composition has shifted dramatically since 2020 — exchanges gave way to stablecoins, DeFi matured, and consumer crypto remains the laggard."
         />
 
+        {/* Live data indicator */}
+        {isLive && (
+          <div className="flex items-center gap-2 mb-4 text-xs text-emerald-600">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            Live data from DefiLlama
+            {ctx.lastUpdated && (
+              <span className="text-slate-400 ml-1">
+                (updated {ctx.lastUpdated.toLocaleTimeString()})
+              </span>
+            )}
+          </div>
+        )}
+
         {/* ---------------------------------------------------------------- */}
         {/* Key Metrics Row                                                  */}
         {/* ---------------------------------------------------------------- */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
           <StatCard
             label="Stablecoin Share"
-            value="40%"
+            value={liveStats ? `${liveStats.stablecoinShare}%` : "40%"}
             subvalue="of total crypto revenue"
-            change="Up from 6% in 2020"
+            change={liveStats ? "Live from DefiLlama" : "Up from 6% in 2020"}
             changeType="positive"
           />
           <StatCard
@@ -306,16 +624,16 @@ export default function Section3Quality() {
           />
           <StatCard
             label="DEX vs CEX"
-            value="55% DEX"
+            value={liveStats ? `${liveStats.dexShare}% DEX` : "55% DEX"}
             subvalue="DEX share of exchange rev"
-            change="DEXs overtook CEXs in 2025"
+            change={liveStats ? "Live from DefiLlama" : "DEXs overtook CEXs in 2025"}
             changeType="positive"
           />
           <StatCard
             label="Consumer Share"
-            value="6%"
+            value={liveStats ? `${liveStats.consumerShare}%` : "6%"}
             subvalue="of onchain revenue (H1 2025)"
-            change="-20% YoY growth"
+            change={liveStats ? "Live from DefiLlama" : "-20% YoY growth"}
             changeType="negative"
           />
         </div>
@@ -324,132 +642,148 @@ export default function Section3Quality() {
         {/* 1. Stacked Area — Sector Revenue Over Time                       */}
         {/* ---------------------------------------------------------------- */}
         <Card className="mb-10">
-          <h3 className="text-lg font-bold text-slate-900 mb-1">
-            Sector Revenue Composition (2020 - 2025)
-          </h3>
-          <p className="text-sm text-slate-500 mb-6">
-            Exchanges dominated in 2020-21. Stablecoins took over in the bear market. DeFi surged again in 2024-25.
-          </p>
-          <div className="h-[400px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={areaData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fontSize: 12, fill: "#64748b" }}
-                  axisLine={{ stroke: "#e2e8f0" }}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 12, fill: "#64748b" }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v: number) => `$${v}B`}
-                />
-                <Tooltip content={<SectorAreaTooltip />} />
-                {SECTOR_KEYS.map((key) => (
-                  <Area
-                    key={key}
-                    type="monotone"
-                    dataKey={key}
-                    stackId="1"
-                    stroke={SECTOR_COLORS[key]}
-                    fill={SECTOR_COLORS[key]}
-                    fillOpacity={0.75}
+          <ChartExport
+            data={areaData}
+            filename="sector-revenue-composition"
+          >
+            <h3 className="text-lg font-bold text-slate-900 mb-1">
+              Sector Revenue Composition (2020 - 2025)
+            </h3>
+            <p className="text-sm text-slate-500 mb-6">
+              Exchanges dominated in 2020-21. Stablecoins took over in the bear market. DeFi surged again in 2024-25.
+              {isLive && <span className="text-emerald-500 ml-1">(latest period live-updated)</span>}
+            </p>
+            <div className="h-[400px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={areaData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 12, fill: "#64748b" }}
+                    axisLine={{ stroke: "#e2e8f0" }}
+                    tickLine={false}
                   />
-                ))}
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+                  <YAxis
+                    tick={{ fontSize: 12, fill: "#64748b" }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v: number) => `$${v}B`}
+                  />
+                  <Tooltip content={<SectorAreaTooltip />} />
+                  {SECTOR_KEYS.map((key) => (
+                    <Area
+                      key={key}
+                      type="monotone"
+                      dataKey={key}
+                      stackId="1"
+                      stroke={SECTOR_COLORS[key]}
+                      fill={SECTOR_COLORS[key]}
+                      fillOpacity={0.75}
+                    />
+                  ))}
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
 
-          {/* Legend */}
-          <div className="flex flex-wrap gap-4 mt-4 justify-center">
-            {SECTOR_KEYS.map((key) => (
-              <div key={key} className="flex items-center gap-1.5 text-xs text-slate-600">
-                <span
-                  className="inline-block w-3 h-3 rounded-sm"
-                  style={{ backgroundColor: SECTOR_COLORS[key] }}
-                />
-                {SECTOR_LABELS[key]}
-              </div>
-            ))}
-          </div>
+            {/* Legend */}
+            <div className="flex flex-wrap gap-4 mt-4 justify-center">
+              {SECTOR_KEYS.map((key) => (
+                <div key={key} className="flex items-center gap-1.5 text-xs text-slate-600">
+                  <span
+                    className="inline-block w-3 h-3 rounded-sm"
+                    style={{ backgroundColor: SECTOR_COLORS[key] }}
+                  />
+                  {SECTOR_LABELS[key]}
+                </div>
+              ))}
+            </div>
+          </ChartExport>
 
           <DataSource sources={["1kx 2025 Onchain Revenue Report", "DefiLlama", "TokenTerminal"]} />
         </Card>
 
         {/* ---------------------------------------------------------------- */}
-        {/* 2. Pie / Donut — H1 2025 Sector Breakdown                       */}
+        {/* 2. Pie / Donut — Sector Breakdown (live or H1 2025 static)       */}
         {/* ---------------------------------------------------------------- */}
         <Card className="mb-10">
           <h3 className="text-lg font-bold text-slate-900 mb-1">
-            H1 2025 Onchain Revenue Breakdown
+            {isLive ? "Current Onchain Revenue Breakdown" : "H1 2025 Onchain Revenue Breakdown"}
           </h3>
           <p className="text-sm text-slate-500 mb-6">
-            $9.7B in onchain fees. DeFi/Finance dominates at 63%, while Consumer
-            contributes just 6%.
+            {isLive
+              ? "Live sector breakdown from DefiLlama protocol fees (30-day annualized)."
+              : "$9.7B in onchain fees. DeFi/Finance dominates at 63%, while Consumer contributes just 6%."}
           </p>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
             {/* Donut chart */}
-            <div className="h-[340px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={70}
-                    outerRadius={120}
-                    paddingAngle={2}
-                    dataKey="value"
-                    label={({
-                      cx,
-                      cy,
-                      midAngle,
-                      innerRadius,
-                      outerRadius,
-                      percent,
-                      index,
-                    }) => (
-                      <PieLabel
-                        cx={cx}
-                        cy={cy}
-                        midAngle={midAngle}
-                        innerRadius={innerRadius}
-                        outerRadius={outerRadius}
-                        percent={percent}
-                        sector={pieData[index].sector}
-                      />
-                    )}
-                  >
-                    {pieData.map((entry, idx) => (
-                      <Cell
-                        key={`cell-${idx}`}
-                        fill={entry.color}
-                        stroke="white"
-                        strokeWidth={2}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(value: number, name: string) => [
-                      `$${value.toFixed(2)}B`,
-                      name,
-                    ]}
-                    contentStyle={{
-                      borderRadius: "12px",
-                      border: "1px solid #f1f5f9",
-                      boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+            <ChartExport
+              data={pieData.map((d) => ({
+                sector: d.sector,
+                value: d.value,
+                share: d.share,
+              }))}
+              filename="sector-breakdown-pie"
+            >
+              <div className="h-[340px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={70}
+                      outerRadius={120}
+                      paddingAngle={2}
+                      dataKey="value"
+                      label={({
+                        cx,
+                        cy,
+                        midAngle,
+                        innerRadius,
+                        outerRadius,
+                        percent,
+                        index,
+                      }) => (
+                        <PieLabel
+                          cx={cx}
+                          cy={cy}
+                          midAngle={midAngle}
+                          innerRadius={innerRadius}
+                          outerRadius={outerRadius}
+                          percent={percent}
+                          sector={pieData[index].sector}
+                        />
+                      )}
+                    >
+                      {pieData.map((entry, idx) => (
+                        <Cell
+                          key={`cell-${idx}`}
+                          fill={entry.color}
+                          stroke="white"
+                          strokeWidth={2}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(value: number, name: string) => [
+                        `$${value.toFixed(2)}B`,
+                        name,
+                      ]}
+                      contentStyle={{
+                        borderRadius: "12px",
+                        border: "1px solid #f1f5f9",
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </ChartExport>
 
             {/* Sector detail cards */}
             <div className="space-y-3">
-              {h1_2025_sectorBreakdown.map((s) => (
+              {sectorDetailList.map((s) => (
                 <div
                   key={s.sector}
                   className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-3"
@@ -468,20 +802,30 @@ export default function Section3Quality() {
                       </p>
                     </div>
                   </div>
-                  <span
-                    className={`text-sm font-bold ${
-                      s.yoyGrowth >= 0 ? "text-emerald-600" : "text-red-500"
-                    }`}
-                  >
-                    {s.yoyGrowth >= 0 ? "+" : ""}
-                    {s.yoyGrowth}% YoY
-                  </span>
+                  {s.yoyGrowth !== null ? (
+                    <span
+                      className={`text-sm font-bold ${
+                        s.yoyGrowth >= 0 ? "text-emerald-600" : "text-red-500"
+                      }`}
+                    >
+                      {s.yoyGrowth >= 0 ? "+" : ""}
+                      {s.yoyGrowth}% YoY
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-400">Live</span>
+                  )}
                 </div>
               ))}
             </div>
           </div>
 
-          <DataSource sources={["1kx 2025 Onchain Revenue Report (H1 2025)"]} />
+          <DataSource
+            sources={
+              isLive
+                ? ["DefiLlama (live)", "1kx 2025 Onchain Revenue Report (H1 2025)"]
+                : ["1kx 2025 Onchain Revenue Report (H1 2025)"]
+            }
+          />
         </Card>
 
         {/* ---------------------------------------------------------------- */}
@@ -494,51 +838,65 @@ export default function Section3Quality() {
           <p className="text-sm text-slate-500 mb-6">
             CEXs commanded 86% of exchange revenue in 2020. By 2025, DEXs have
             overtaken them for the first time, capturing 55% of the total.
+            {isLive && <span className="text-emerald-500 ml-1">(latest period live-updated)</span>}
           </p>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Bar chart */}
-            <div className="lg:col-span-2 h-[360px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={exchangeData}
-                  margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 12, fill: "#64748b" }}
-                    axisLine={{ stroke: "#e2e8f0" }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 12, fill: "#64748b" }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(v: number) => `$${v}B`}
-                  />
-                  <Tooltip content={<ExchangeTooltip />} />
-                  <Legend
-                    formatter={(value: string) =>
-                      value === "cex" ? "CEX Revenue" : "DEX Revenue"
-                    }
-                    iconType="square"
-                    wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
-                  />
-                  <Bar
-                    dataKey="cex"
-                    fill="#8b5cf6"
-                    radius={[4, 4, 0, 0]}
-                    name="cex"
-                  />
-                  <Bar
-                    dataKey="dex"
-                    fill="#3b82f6"
-                    radius={[4, 4, 0, 0]}
-                    name="dex"
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+            <div className="lg:col-span-2">
+              <ChartExport
+                data={exchangeData.map((d) => ({
+                  year: d.name,
+                  cex: d.cex,
+                  dex: d.dex,
+                  total: d.total,
+                  cexDominance: d.cexDominance,
+                }))}
+                filename="exchange-revenue-cex-vs-dex"
+              >
+                <div className="h-[360px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={exchangeData}
+                      margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 12, fill: "#64748b" }}
+                        axisLine={{ stroke: "#e2e8f0" }}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 12, fill: "#64748b" }}
+                        axisLine={false}
+                        tickLine={false}
+                        tickFormatter={(v: number) => `$${v}B`}
+                      />
+                      <Tooltip content={<ExchangeTooltip />} />
+                      <Legend
+                        formatter={(value: string) =>
+                          value === "cex" ? "CEX Revenue" : "DEX Revenue"
+                        }
+                        iconType="square"
+                        wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                      />
+                      <Bar
+                        dataKey="cex"
+                        fill="#8b5cf6"
+                        radius={[4, 4, 0, 0]}
+                        name="cex"
+                      />
+                      <Bar
+                        dataKey="dex"
+                        fill="#3b82f6"
+                        radius={[4, 4, 0, 0]}
+                        name="dex"
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </ChartExport>
             </div>
 
             {/* CEX dominance trend */}
@@ -546,7 +904,7 @@ export default function Section3Quality() {
               <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">
                 CEX Dominance Trend
               </h4>
-              {exchangeRevenueHistory.map((d) => (
+              {exchangeHistoryForDominance.map((d) => (
                 <div key={d.year} className="flex items-center gap-3">
                   <span className="text-xs text-slate-500 w-10">{d.year}</span>
                   <div className="flex-1 bg-slate-100 rounded-full h-4 overflow-hidden">
@@ -586,7 +944,7 @@ export default function Section3Quality() {
         </Card>
 
         {/* ---------------------------------------------------------------- */}
-        {/* 4. Consumer Crypto Failure Analysis                              */}
+        {/* 4. Consumer Crypto Failure Analysis (editorial — static data)    */}
         {/* ---------------------------------------------------------------- */}
         <Card className="mb-10">
           <h3 className="text-lg font-bold text-slate-900 mb-1">
@@ -691,100 +1049,105 @@ export default function Section3Quality() {
         </Card>
 
         {/* ---------------------------------------------------------------- */}
-        {/* 5. Stablecoin Interest Rate Dependency                           */}
+        {/* 5. Stablecoin Interest Rate Dependency (editorial — static data) */}
         {/* ---------------------------------------------------------------- */}
         <Card className="mb-10">
-          <h3 className="text-lg font-bold text-slate-900 mb-1">
-            Stablecoins and the Rate Trap
-          </h3>
-          <p className="text-sm text-slate-500 mb-6">
-            Stablecoin issuers (Tether, Circle) earn the majority of their
-            revenue from T-bill interest. As the Fed cuts rates, this revenue
-            stream shrinks — unless they diversify into transaction fees.
-          </p>
+          <ChartExport
+            data={stablecoinData}
+            filename="stablecoin-interest-rate-dependency"
+          >
+            <h3 className="text-lg font-bold text-slate-900 mb-1">
+              Stablecoins and the Rate Trap
+            </h3>
+            <p className="text-sm text-slate-500 mb-6">
+              Stablecoin issuers (Tether, Circle) earn the majority of their
+              revenue from T-bill interest. As the Fed cuts rates, this revenue
+              stream shrinks — unless they diversify into transaction fees.
+            </p>
 
-          <div className="h-[400px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart
-                data={stablecoinData}
-                margin={{ top: 10, right: 50, left: 0, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fontSize: 12, fill: "#64748b" }}
-                  axisLine={{ stroke: "#e2e8f0" }}
-                  tickLine={false}
-                />
-                <YAxis
-                  yAxisId="left"
-                  tick={{ fontSize: 12, fill: "#64748b" }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v: number) => `$${v}B`}
-                  label={{
-                    value: "Revenue ($B)",
-                    angle: -90,
-                    position: "insideLeft",
-                    style: { fontSize: 11, fill: "#94a3b8" },
-                  }}
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  tick={{ fontSize: 12, fill: "#64748b" }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v: number) => `${v}%`}
-                  domain={[0, 7]}
-                  label={{
-                    value: "Fed Rate (%)",
-                    angle: 90,
-                    position: "insideRight",
-                    style: { fontSize: 11, fill: "#94a3b8" },
-                  }}
-                />
-                <Tooltip content={<StablecoinTooltip />} />
-                <Legend
-                  wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
-                  iconType="square"
-                />
-                <Bar
-                  yAxisId="left"
-                  dataKey="interestIncome"
-                  fill="#10b981"
-                  radius={[4, 4, 0, 0]}
-                  name="Interest Income"
-                  stackId="rev"
-                />
-                <Bar
-                  yAxisId="left"
-                  dataKey="transactionFees"
-                  fill="#3b82f6"
-                  radius={[0, 0, 0, 0]}
-                  name="Transaction Fees"
-                  stackId="rev"
-                />
-                <Bar
-                  yAxisId="left"
-                  dataKey="other"
-                  fill="#94a3b8"
-                  radius={[0, 0, 0, 0]}
-                  name="Other Revenue"
-                  stackId="rev"
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="fedRate"
-                  stroke="#ef4444"
-                  strokeWidth={2.5}
-                  dot={{ r: 4, fill: "#ef4444", strokeWidth: 0 }}
-                  name="Fed Funds Rate"
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
+            <div className="h-[400px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart
+                  data={stablecoinData}
+                  margin={{ top: 10, right: 50, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 12, fill: "#64748b" }}
+                    axisLine={{ stroke: "#e2e8f0" }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    tick={{ fontSize: 12, fill: "#64748b" }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v: number) => `$${v}B`}
+                    label={{
+                      value: "Revenue ($B)",
+                      angle: -90,
+                      position: "insideLeft",
+                      style: { fontSize: 11, fill: "#94a3b8" },
+                    }}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tick={{ fontSize: 12, fill: "#64748b" }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v: number) => `${v}%`}
+                    domain={[0, 7]}
+                    label={{
+                      value: "Fed Rate (%)",
+                      angle: 90,
+                      position: "insideRight",
+                      style: { fontSize: 11, fill: "#94a3b8" },
+                    }}
+                  />
+                  <Tooltip content={<StablecoinTooltip />} />
+                  <Legend
+                    wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                    iconType="square"
+                  />
+                  <Bar
+                    yAxisId="left"
+                    dataKey="interestIncome"
+                    fill="#10b981"
+                    radius={[4, 4, 0, 0]}
+                    name="Interest Income"
+                    stackId="rev"
+                  />
+                  <Bar
+                    yAxisId="left"
+                    dataKey="transactionFees"
+                    fill="#3b82f6"
+                    radius={[0, 0, 0, 0]}
+                    name="Transaction Fees"
+                    stackId="rev"
+                  />
+                  <Bar
+                    yAxisId="left"
+                    dataKey="other"
+                    fill="#94a3b8"
+                    radius={[0, 0, 0, 0]}
+                    name="Other Revenue"
+                    stackId="rev"
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="fedRate"
+                    stroke="#ef4444"
+                    strokeWidth={2.5}
+                    dot={{ r: 4, fill: "#ef4444", strokeWidth: 0 }}
+                    name="Fed Funds Rate"
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </ChartExport>
 
           {/* Rate dependency breakdown */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">

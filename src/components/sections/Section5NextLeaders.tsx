@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import {
   BarChart,
   Bar,
@@ -20,6 +20,8 @@ import {
   InsightBox,
 } from "@/components/ui/Card";
 import { nextLeaders, CHART_COLORS } from "@/lib/data";
+import { useDataContext } from "@/lib/DataContext";
+import { ChartExport } from "@/components/ui/ChartExport";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -52,6 +54,21 @@ const convictionConfig: Record<
     bg: "bg-red-400",
     width: "w-1/4",
   },
+};
+
+// Map from protocol display names to DefiLlama protocol slug names
+const NEXT_LEADER_SLUG_MAP: Record<string, string[]> = {
+  "Ondo Finance": ["ondo-finance", "ondo"],
+  "Centrifuge": ["centrifuge"],
+  "Maple Finance": ["maple", "maple-finance"],
+  "Backed Finance": ["backed-finance", "backed"],
+  "Circle/USDC": ["circle"],
+  "PayPal (PYUSD)": ["paypal"],
+  "MoonPay/Ramp": ["moonpay", "ramp"],
+  "Virtuals Protocol": ["virtuals-protocol", "virtuals"],
+  "Autonolas (OLAS)": ["autonolas", "olas"],
+  "Fetch.ai/ASI": ["fetch-ai", "fetch.ai", "asi"],
+  "AIXBT": ["aixbt"],
 };
 
 // ---------------------------------------------------------------------------
@@ -171,53 +188,6 @@ function CatalystRiskRow({ catalyst, risk }: { catalyst: string; risk: string })
 }
 
 // ---------------------------------------------------------------------------
-// Revenue Projection Chart Data
-// ---------------------------------------------------------------------------
-
-const projectionChartData = [
-  {
-    sector: "RWA",
-    current: nextLeaders.rwa.currentRevenue,
-    projected: nextLeaders.rwa.projectedRevenue2027,
-  },
-  {
-    sector: "Payments",
-    current: nextLeaders.payments.currentRevenue,
-    projected: nextLeaders.payments.projectedRevenue2027,
-  },
-  {
-    sector: "AI Agents",
-    current: nextLeaders.aiAgents.currentRevenue,
-    projected: nextLeaders.aiAgents.projectedRevenue2027,
-  },
-];
-
-// Summary comparison table data
-const summaryData = [
-  {
-    sector: "Stablecoin Payments",
-    current: nextLeaders.payments.currentRevenue,
-    projected: nextLeaders.payments.projectedRevenue2027,
-    growth: nextLeaders.payments.growthRate,
-    conviction: "high" as const,
-  },
-  {
-    sector: "Real World Assets",
-    current: nextLeaders.rwa.currentRevenue,
-    projected: nextLeaders.rwa.projectedRevenue2027,
-    growth: nextLeaders.rwa.growthRate,
-    conviction: "medium" as const,
-  },
-  {
-    sector: "AI Agent Infra",
-    current: nextLeaders.aiAgents.currentRevenue,
-    projected: nextLeaders.aiAgents.projectedRevenue2027,
-    growth: nextLeaders.aiAgents.growthRate,
-    conviction: "speculative" as const,
-  },
-];
-
-// ---------------------------------------------------------------------------
 // Custom tooltip for bar chart
 // ---------------------------------------------------------------------------
 
@@ -236,11 +206,125 @@ function ProjectionTooltip({ active, payload, label }: any) {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: look up live protocol revenue from DefiLlama data
+// ---------------------------------------------------------------------------
+
+function lookupLiveRevenue(
+  protocolName: string,
+  liveProtocols: { name: string; displayName: string; total24h: number }[] | undefined
+): number | null {
+  if (!liveProtocols) return null;
+  const slugs = NEXT_LEADER_SLUG_MAP[protocolName];
+  if (!slugs) return null;
+
+  const match = liveProtocols.find((lp) =>
+    slugs.some(
+      (slug) =>
+        lp.name.toLowerCase() === slug.toLowerCase() ||
+        lp.displayName.toLowerCase() === slug.toLowerCase()
+    )
+  );
+
+  if (match && match.total24h > 0) {
+    // Annualize: daily fees * 365, result in $M
+    const annualizedM = (match.total24h * 365) / 1e6;
+    return annualizedM > 0.01 ? Math.round(annualizedM * 10) / 10 : null;
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
 export default function Section5NextLeaders() {
-  const { rwa, payments, aiAgents } = nextLeaders;
+  const ctx = useDataContext();
+  const liveProtocols = ctx.fees?.protocols;
+
+  // -----------------------------------------------------------------------
+  // Enrich each sector's key protocols with live revenue where available
+  // -----------------------------------------------------------------------
+  const enrichedRwa = useMemo(() => {
+    const kp = nextLeaders.rwa.keyProtocols.map((p) => {
+      const live = lookupLiveRevenue(p.name, liveProtocols);
+      return live !== null ? { ...p, revenue: live } : { ...p };
+    });
+    const totalCurrent = kp.reduce((s, p) => s + p.revenue, 0);
+    // Use sum of protocol revenues as currentRevenue if live data raised it
+    const currentRevenue = totalCurrent > nextLeaders.rwa.currentRevenue
+      ? Math.round(totalCurrent)
+      : nextLeaders.rwa.currentRevenue;
+    return { ...nextLeaders.rwa, keyProtocols: kp, currentRevenue };
+  }, [liveProtocols]);
+
+  const enrichedPayments = useMemo(() => {
+    const kp = nextLeaders.payments.keyProtocols.map((p) => {
+      const live = lookupLiveRevenue(p.name, liveProtocols);
+      return live !== null ? { ...p, revenue: live } : { ...p };
+    });
+    const totalCurrent = kp.reduce((s, p) => s + p.revenue, 0);
+    const currentRevenue = totalCurrent > nextLeaders.payments.currentRevenue
+      ? Math.round(totalCurrent)
+      : nextLeaders.payments.currentRevenue;
+    return { ...nextLeaders.payments, keyProtocols: kp, currentRevenue };
+  }, [liveProtocols]);
+
+  const enrichedAiAgents = useMemo(() => {
+    const kp = nextLeaders.aiAgents.keyProtocols.map((p) => {
+      const live = lookupLiveRevenue(p.name, liveProtocols);
+      return live !== null ? { ...p, revenue: live } : { ...p };
+    });
+    const totalCurrent = kp.reduce((s, p) => s + p.revenue, 0);
+    const currentRevenue = totalCurrent > nextLeaders.aiAgents.currentRevenue
+      ? Math.round(totalCurrent * 10) / 10
+      : nextLeaders.aiAgents.currentRevenue;
+    return { ...nextLeaders.aiAgents, keyProtocols: kp, currentRevenue };
+  }, [liveProtocols]);
+
+  // Aliases for template readability
+  const rwa = enrichedRwa;
+  const payments = enrichedPayments;
+  const aiAgents = enrichedAiAgents;
+
+  // -----------------------------------------------------------------------
+  // Chart data (recomputed from enriched data)
+  // -----------------------------------------------------------------------
+  const projectionChartData = useMemo(
+    () => [
+      { sector: "RWA", current: rwa.currentRevenue, projected: rwa.projectedRevenue2027 },
+      { sector: "Payments", current: payments.currentRevenue, projected: payments.projectedRevenue2027 },
+      { sector: "AI Agents", current: aiAgents.currentRevenue, projected: aiAgents.projectedRevenue2027 },
+    ],
+    [rwa, payments, aiAgents]
+  );
+
+  const summaryData = useMemo(
+    () => [
+      {
+        sector: "Stablecoin Payments",
+        current: payments.currentRevenue,
+        projected: payments.projectedRevenue2027,
+        growth: payments.growthRate,
+        conviction: "high" as const,
+      },
+      {
+        sector: "Real World Assets",
+        current: rwa.currentRevenue,
+        projected: rwa.projectedRevenue2027,
+        growth: rwa.growthRate,
+        conviction: "medium" as const,
+      },
+      {
+        sector: "AI Agent Infra",
+        current: aiAgents.currentRevenue,
+        projected: aiAgents.projectedRevenue2027,
+        growth: aiAgents.growthRate,
+        conviction: "speculative" as const,
+      },
+    ],
+    [rwa, payments, aiAgents]
+  );
 
   return (
     <section className="py-16 px-4 max-w-6xl mx-auto">
@@ -259,50 +343,63 @@ export default function Section5NextLeaders() {
         </h3>
         <p className="text-sm text-slate-500 mb-6">
           Across three emerging sectors — note the log-scale differences in magnitude
+          {ctx.isLive && (
+            <span className="ml-2 inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Live data
+            </span>
+          )}
         </p>
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={projectionChartData}
-              margin={{ top: 8, right: 24, left: 0, bottom: 0 }}
-              barGap={8}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis
-                dataKey="sector"
-                tick={{ fontSize: 13, fill: "#64748b" }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fontSize: 12, fill: "#94a3b8" }}
-                axisLine={false}
-                tickLine={false}
-                tickFormatter={(v: number) => formatRevenue(v)}
-              />
-              <Tooltip content={<ProjectionTooltip />} />
-              <Legend
-                wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
-                iconType="circle"
-                iconSize={8}
-              />
-              <Bar
-                dataKey="current"
-                name="Current Revenue"
-                fill={CHART_COLORS.muted}
-                radius={[6, 6, 0, 0]}
-                maxBarSize={56}
-              />
-              <Bar
-                dataKey="projected"
-                name="Projected 2027"
-                fill={CHART_COLORS.primary}
-                radius={[6, 6, 0, 0]}
-                maxBarSize={56}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+
+        <ChartExport
+          data={projectionChartData}
+          filename="section5-current-vs-projected-revenue"
+        >
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={projectionChartData}
+                margin={{ top: 8, right: 24, left: 0, bottom: 0 }}
+                barGap={8}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis
+                  dataKey="sector"
+                  tick={{ fontSize: 13, fill: "#64748b" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 12, fill: "#94a3b8" }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v: number) => formatRevenue(v)}
+                />
+                <Tooltip content={<ProjectionTooltip />} />
+                <Legend
+                  wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                  iconType="circle"
+                  iconSize={8}
+                />
+                <Bar
+                  dataKey="current"
+                  name="Current Revenue"
+                  fill={CHART_COLORS.muted}
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={56}
+                />
+                <Bar
+                  dataKey="projected"
+                  name="Projected 2027"
+                  fill={CHART_COLORS.primary}
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={56}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </ChartExport>
+
         <DataSource sources={["1kx 2025 Onchain Revenue Report", "DefiLlama", "TokenTerminal", "Team estimates"]} />
       </Card>
 
@@ -325,7 +422,7 @@ export default function Section5NextLeaders() {
           <StatCard
             label="Current Revenue"
             value={formatRevenue(rwa.currentRevenue)}
-            subvalue="Annualized H1 2025"
+            subvalue={ctx.isLive ? "Annualized (live)" : "Annualized H1 2025"}
             change={rwa.growthRate}
             changeType="positive"
           />
@@ -393,7 +490,7 @@ export default function Section5NextLeaders() {
           <StatCard
             label="Current Revenue"
             value={formatRevenue(payments.currentRevenue)}
-            subvalue="Annualized 2025"
+            subvalue={ctx.isLive ? "Annualized (live)" : "Annualized 2025"}
             change={payments.growthRate}
             changeType="positive"
           />
@@ -422,48 +519,58 @@ export default function Section5NextLeaders() {
           <h4 className="text-sm font-semibold text-slate-700 mb-4">
             Payment Protocol Revenue Comparison
           </h4>
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={payments.keyProtocols}
-                layout="vertical"
-                margin={{ top: 4, right: 24, left: 4, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                <XAxis
-                  type="number"
-                  tick={{ fontSize: 12, fill: "#94a3b8" }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v: number) => formatRevenue(v)}
-                />
-                <YAxis
-                  dataKey="name"
-                  type="category"
-                  tick={{ fontSize: 12, fill: "#475569" }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={120}
-                />
-                <Tooltip content={<ProjectionTooltip />} />
-                <Bar dataKey="revenue" name="Revenue" radius={[0, 6, 6, 0]} maxBarSize={28}>
-                  {payments.keyProtocols.map((_, i) => (
-                    <Cell
-                      key={i}
-                      fill={
-                        [
-                          CHART_COLORS.quaternary,
-                          CHART_COLORS.primary,
-                          CHART_COLORS.secondary,
-                          CHART_COLORS.tertiary,
-                        ][i]
-                      }
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+
+          <ChartExport
+            data={payments.keyProtocols.map((p) => ({
+              name: p.name,
+              revenue: p.revenue,
+              focus: p.focus,
+            }))}
+            filename="section5-payment-protocol-revenue"
+          >
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={payments.keyProtocols}
+                  layout="vertical"
+                  margin={{ top: 4, right: 24, left: 4, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 12, fill: "#94a3b8" }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v: number) => formatRevenue(v)}
+                  />
+                  <YAxis
+                    dataKey="name"
+                    type="category"
+                    tick={{ fontSize: 12, fill: "#475569" }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={120}
+                  />
+                  <Tooltip content={<ProjectionTooltip />} />
+                  <Bar dataKey="revenue" name="Revenue" radius={[0, 6, 6, 0]} maxBarSize={28}>
+                    {payments.keyProtocols.map((_, i) => (
+                      <Cell
+                        key={i}
+                        fill={
+                          [
+                            CHART_COLORS.quaternary,
+                            CHART_COLORS.primary,
+                            CHART_COLORS.secondary,
+                            CHART_COLORS.tertiary,
+                          ][i]
+                        }
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </ChartExport>
         </Card>
 
         {/* Protocol cards */}
@@ -510,7 +617,7 @@ export default function Section5NextLeaders() {
           <StatCard
             label="Current Revenue"
             value={formatRevenue(aiAgents.currentRevenue)}
-            subvalue="Annualized 2025"
+            subvalue={ctx.isLive ? "Annualized (live)" : "Annualized 2025"}
             change={aiAgents.growthRate}
             changeType="neutral"
           />

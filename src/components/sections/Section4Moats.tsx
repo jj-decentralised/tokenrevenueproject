@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import {
   BarChart,
   Bar,
@@ -18,6 +18,8 @@ import {
   Legend,
 } from "recharts";
 import { moatAnalysis, CHART_COLORS } from "@/lib/data";
+import { useDataContext } from "@/lib/DataContext";
+import { ChartExport } from "@/components/ui/ChartExport";
 import {
   Card,
   StatCard,
@@ -43,15 +45,6 @@ const moatStrengthColor = (strength: string) => {
   }
 };
 
-const barChartData = moatAnalysis
-  .map((p) => ({
-    name: p.protocol.split(" (")[0],
-    revenue: p.revenue,
-    moatStrength: p.moatStrength,
-    durability: p.durability,
-  }))
-  .sort((a, b) => b.revenue - a.revenue);
-
 const barFillColor = (strength: string) => {
   switch (strength) {
     case "strong":
@@ -63,6 +56,16 @@ const barFillColor = (strength: string) => {
     default:
       return CHART_COLORS.muted;
   }
+};
+
+// Map from moatAnalysis protocol names to DefiLlama protocol slug names
+const PROTOCOL_SLUG_MAP: Record<string, string[]> = {
+  "Tether": ["tether"],
+  "Circle": ["circle"],
+  "Aave": ["aave"],
+  "Uniswap": ["uniswap"],
+  "Hyperliquid": ["hyperliquid"],
+  "Jupiter": ["jupiter"],
 };
 
 // Radar chart dimensions — each protocol scored 1-10 across moat axes
@@ -130,7 +133,7 @@ function ProtocolMoatCard({
   protocol,
   isHighlighted = false,
 }: {
-  protocol: (typeof moatAnalysis)[number];
+  protocol: (typeof moatAnalysis)[number] & { revenue: number };
   isHighlighted?: boolean;
 }) {
   const colors = moatStrengthColor(protocol.moatStrength);
@@ -262,6 +265,58 @@ function RevenueBarTooltip({ active, payload }: { active?: boolean; payload?: Ar
 // ---------------------------------------------------------------------------
 
 export default function Section4Moats() {
+  const ctx = useDataContext();
+
+  // -----------------------------------------------------------------------
+  // Merge live revenue data into moatAnalysis where available
+  // -----------------------------------------------------------------------
+  const enrichedMoatAnalysis = useMemo(() => {
+    return moatAnalysis.map((p) => {
+      const shortName = p.protocol.split(" (")[0];
+      const slugs = PROTOCOL_SLUG_MAP[shortName];
+      if (!slugs || !ctx.fees?.protocols) return { ...p };
+
+      // Try to find matching protocol in live data
+      const liveProto = ctx.fees.protocols.find((lp) =>
+        slugs.some(
+          (slug) =>
+            lp.name.toLowerCase() === slug.toLowerCase() ||
+            lp.displayName.toLowerCase() === slug.toLowerCase()
+        )
+      );
+
+      if (liveProto && liveProto.total24h > 0) {
+        // Use live daily fees * 365 to annualize, in $M
+        const annualized = Math.round((liveProto.total24h * 365) / 1e6 * 1e6) / 1e6;
+        // Convert to $M for consistency with static data
+        const annualizedM = Math.round(liveProto.total24h * 365);
+        return { ...p, revenue: annualizedM > 0 ? annualizedM : p.revenue };
+      }
+
+      return { ...p };
+    });
+  }, [ctx.fees]);
+
+  // Build bar chart data from enriched analysis
+  const barChartData = useMemo(
+    () =>
+      enrichedMoatAnalysis
+        .map((p) => ({
+          name: p.protocol.split(" (")[0],
+          revenue: p.revenue,
+          moatStrength: p.moatStrength,
+          durability: p.durability,
+        }))
+        .sort((a, b) => b.revenue - a.revenue),
+    [enrichedMoatAnalysis]
+  );
+
+  // Compute combined revenue from enriched data
+  const combinedRevenue = useMemo(
+    () => enrichedMoatAnalysis.reduce((sum, p) => sum + p.revenue, 0),
+    [enrichedMoatAnalysis]
+  );
+
   return (
     <section className="space-y-10">
       {/* Section Header */}
@@ -294,8 +349,8 @@ export default function Section4Moats() {
         />
         <StatCard
           label="Combined Revenue"
-          value="$20.7B"
-          subvalue="Annualized across 6 protocols"
+          value={`$${(combinedRevenue / 1000).toFixed(1)}B`}
+          subvalue={`Annualized across 6 protocols${ctx.isLive ? " (live)" : ""}`}
         />
       </div>
 
@@ -307,6 +362,12 @@ export default function Section4Moats() {
           </h3>
           <p className="text-sm text-slate-500 mt-1">
             Annualized revenue ($M) color-coded by moat strength -- green = strong, amber = moderate, red = weak
+            {ctx.isLive && (
+              <span className="ml-2 inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live data
+              </span>
+            )}
           </p>
         </div>
 
@@ -326,38 +387,43 @@ export default function Section4Moats() {
           </div>
         </div>
 
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={barChartData}
-              layout="vertical"
-              margin={{ top: 0, right: 40, bottom: 0, left: 0 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-              <XAxis
-                type="number"
-                tick={{ fontSize: 12, fill: "#94a3b8" }}
-                tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}B`}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                type="category"
-                dataKey="name"
-                width={100}
-                tick={{ fontSize: 13, fill: "#334155", fontWeight: 500 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip content={<RevenueBarTooltip />} cursor={{ fill: "#f8fafc" }} />
-              <Bar dataKey="revenue" radius={[0, 6, 6, 0]} barSize={28}>
-                {barChartData.map((entry, index) => (
-                  <Cell key={index} fill={barFillColor(entry.moatStrength)} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <ChartExport
+          data={barChartData}
+          filename="section4-revenue-by-protocol"
+        >
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={barChartData}
+                layout="vertical"
+                margin={{ top: 0, right: 40, bottom: 0, left: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                <XAxis
+                  type="number"
+                  tick={{ fontSize: 12, fill: "#94a3b8" }}
+                  tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}B`}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  width={100}
+                  tick={{ fontSize: 13, fill: "#334155", fontWeight: 500 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip content={<RevenueBarTooltip />} cursor={{ fill: "#f8fafc" }} />
+                <Bar dataKey="revenue" radius={[0, 6, 6, 0]} barSize={28}>
+                  {barChartData.map((entry, index) => (
+                    <Cell key={index} fill={barFillColor(entry.moatStrength)} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </ChartExport>
 
         <DataSource sources={["TokenTerminal", "DefiLlama", "1kx Onchain Revenue Report Q3 2025"]} />
       </Card>
@@ -390,7 +456,7 @@ export default function Section4Moats() {
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {moatAnalysis.map((protocol) => (
+          {enrichedMoatAnalysis.map((protocol) => (
             <ProtocolMoatCard
               key={protocol.protocol}
               protocol={protocol}
@@ -443,46 +509,51 @@ export default function Section4Moats() {
           </p>
         </div>
 
-        <div className="h-[500px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarDimensions}>
-              <PolarGrid stroke="#e2e8f0" />
-              <PolarAngleAxis
-                dataKey="dimension"
-                tick={{ fontSize: 11, fill: "#64748b" }}
-              />
-              <PolarRadiusAxis
-                angle={90}
-                domain={[0, 10]}
-                tick={{ fontSize: 10, fill: "#94a3b8" }}
-                tickCount={6}
-              />
-              {Object.entries(radarColors).map(([protocol, color]) => (
-                <Radar
-                  key={protocol}
-                  name={protocol}
-                  dataKey={protocol}
-                  stroke={color}
-                  fill={color}
-                  fillOpacity={0.08}
-                  strokeWidth={2}
+        <ChartExport
+          data={radarDimensions}
+          filename="section4-moat-dimensions-radar"
+        >
+          <div className="h-[500px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarDimensions}>
+                <PolarGrid stroke="#e2e8f0" />
+                <PolarAngleAxis
+                  dataKey="dimension"
+                  tick={{ fontSize: 11, fill: "#64748b" }}
                 />
-              ))}
-              <Legend
-                wrapperStyle={{ fontSize: 12, paddingTop: 16 }}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "white",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: "12px",
-                  fontSize: "13px",
-                  boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.05)",
-                }}
-              />
-            </RadarChart>
-          </ResponsiveContainer>
-        </div>
+                <PolarRadiusAxis
+                  angle={90}
+                  domain={[0, 10]}
+                  tick={{ fontSize: 10, fill: "#94a3b8" }}
+                  tickCount={6}
+                />
+                {Object.entries(radarColors).map(([protocol, color]) => (
+                  <Radar
+                    key={protocol}
+                    name={protocol}
+                    dataKey={protocol}
+                    stroke={color}
+                    fill={color}
+                    fillOpacity={0.08}
+                    strokeWidth={2}
+                  />
+                ))}
+                <Legend
+                  wrapperStyle={{ fontSize: 12, paddingTop: 16 }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "white",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "12px",
+                    fontSize: "13px",
+                    boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.05)",
+                  }}
+                />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        </ChartExport>
 
         <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <div className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3">
@@ -569,7 +640,7 @@ export default function Section4Moats() {
               </tr>
             </thead>
             <tbody>
-              {moatAnalysis.map((p, idx) => {
+              {enrichedMoatAnalysis.map((p, idx) => {
                 const colors = moatStrengthColor(p.moatStrength);
                 const isHL = p.protocol.includes("Hyperliquid");
                 return (

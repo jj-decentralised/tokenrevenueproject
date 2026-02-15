@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import {
   ComposedChart,
   AreaChart,
@@ -31,6 +31,67 @@ import {
   tradFiParallels,
   CHART_COLORS,
 } from "@/lib/data";
+import { useDataContext, aggregateToQuarterly } from "@/lib/DataContext";
+import { ChartExport } from "@/components/ui/ChartExport";
+
+// ---------------------------------------------------------------------------
+// Helper: merge live Fear & Greed history with live quarterly revenue into the
+// same shape as the static `sentimentVsRevenueData` array so the chart works
+// unchanged.
+//
+// We bucket F&G history into monthly averages, then align with quarterly
+// revenue data. Each point gets { date, fearGreed, revenue, label }.
+// ---------------------------------------------------------------------------
+function buildLiveSentimentVsRevenue(
+  fgHistory: { timestamp: string; value: number; classification: string }[],
+  quarterlyRevenue: { period: string; value: number }[]
+): { date: string; fearGreed: number; revenue: number; label: string }[] {
+  // Build a map of quarterly revenue keyed like "Q1 2024"
+  const revMap = new Map<string, number>();
+  for (const q of quarterlyRevenue) {
+    // value is raw daily sums in USD — convert to $B (daily fees summed over ~90 days)
+    revMap.set(q.period, +(q.value / 1e9).toFixed(1));
+  }
+
+  // Bucket F&G values by quarter
+  const fgByQuarter = new Map<string, number[]>();
+  for (const entry of fgHistory) {
+    const d = new Date(entry.timestamp);
+    const year = d.getUTCFullYear();
+    const q = Math.ceil((d.getUTCMonth() + 1) / 3);
+    const key = `Q${q} ${year}`;
+    if (!fgByQuarter.has(key)) fgByQuarter.set(key, []);
+    fgByQuarter.get(key)!.push(entry.value);
+  }
+
+  // Create a sorted union of all quarter keys
+  const allQuarters = new Set<string>([
+    ...revMap.keys(),
+    ...fgByQuarter.keys(),
+  ]);
+
+  const sorted = [...allQuarters].sort((a, b) => {
+    const [qa, ya] = [parseInt(a[1]), parseInt(a.split(" ")[1])];
+    const [qb, yb] = [parseInt(b[1]), parseInt(b.split(" ")[1])];
+    return ya !== yb ? ya - yb : qa - qb;
+  });
+
+  // Only include quarters where we have BOTH data points
+  return sorted
+    .filter((key) => fgByQuarter.has(key) && revMap.has(key))
+    .map((key) => {
+      const fgVals = fgByQuarter.get(key)!;
+      const avgFg = Math.round(
+        fgVals.reduce((s, v) => s + v, 0) / fgVals.length
+      );
+      return {
+        date: key,
+        fearGreed: avgFg,
+        revenue: revMap.get(key)!,
+        label: "",
+      };
+    });
+}
 
 // ---------------------------------------------------------------------------
 // Custom tooltip for the dual-axis divergence chart
@@ -98,9 +159,14 @@ function EthFlowsTooltip({ active, payload, label }: any) {
 // ---------------------------------------------------------------------------
 // Sentiment percentile vs revenue percentile visual
 // ---------------------------------------------------------------------------
-function PercentileDivergenceVisual() {
-  const sentimentPct = Math.abs(sentimentKeyMetrics.sentimentPercentileFromATH);
-  const revenuePct = sentimentKeyMetrics.revenuePercentile;
+function PercentileDivergenceVisual({
+  sentimentPctFromATH,
+  revenuePct,
+}: {
+  sentimentPctFromATH: number;
+  revenuePct: number;
+}) {
+  const sentimentPct = Math.abs(sentimentPctFromATH);
 
   return (
     <Card className="relative overflow-hidden">
@@ -236,8 +302,93 @@ function TradFiCard({
 // MAIN COMPONENT
 // ===========================================================================
 export default function Section2Sentiment() {
+  const ctx = useDataContext();
+
+  // -----------------------------------------------------------------------
+  // Derive live values when available, fall back to static
+  // -----------------------------------------------------------------------
+
+  const hasLiveSentiment = !!ctx.sentiment;
+  const hasLiveFees = !!ctx.fees;
+
+  // Current Fear & Greed value
+  const fgValue = hasLiveSentiment
+    ? ctx.sentiment!.fearGreed.current
+    : sentimentKeyMetrics.currentFearGreed;
+
+  // ATH for F&G — we keep the static constant since the API doesn't expose an ATH
+  const athFG = sentimentKeyMetrics.athFearGreed;
+
+  // Percentile from ATH: how far current is below the ATH (as a negative %)
+  const sentimentPctFromATH = hasLiveSentiment
+    ? -Math.round(((athFG - fgValue) / athFG) * 100)
+    : sentimentKeyMetrics.sentimentPercentileFromATH;
+
+  // Quarterly revenue from live fees (aggregated)
+  const liveQuarterlyRevenue = useMemo(() => {
+    if (!hasLiveFees) return null;
+    return aggregateToQuarterly(ctx.fees!.totalDataChart);
+  }, [hasLiveFees, ctx.fees]);
+
+  // Latest quarterly revenue in $B
+  const currentQuarterlyRevenue = useMemo(() => {
+    if (liveQuarterlyRevenue && liveQuarterlyRevenue.length > 0) {
+      const last = liveQuarterlyRevenue[liveQuarterlyRevenue.length - 1];
+      return +(last.value / 1e9).toFixed(1);
+    }
+    return sentimentKeyMetrics.currentQuarterlyRevenue;
+  }, [liveQuarterlyRevenue]);
+
+  // Revenue percentile — compute from the live quarterly data if available
+  const revenuePercentile = useMemo(() => {
+    if (liveQuarterlyRevenue && liveQuarterlyRevenue.length > 1) {
+      const values = liveQuarterlyRevenue.map((q) => q.value);
+      const current = values[values.length - 1];
+      const countBelow = values.filter((v) => v < current).length;
+      return Math.round((countBelow / values.length) * 100);
+    }
+    return sentimentKeyMetrics.revenuePercentile;
+  }, [liveQuarterlyRevenue]);
+
+  // Divergence score — composite of sentiment gap and revenue percentile
+  const divergenceScore = useMemo(() => {
+    if (hasLiveSentiment || hasLiveFees) {
+      // Simple composite: revenuePercentile + abs(sentimentPctFromATH)
+      return revenuePercentile + Math.abs(sentimentPctFromATH);
+    }
+    return sentimentKeyMetrics.divergenceScore;
+  }, [hasLiveSentiment, hasLiveFees, revenuePercentile, sentimentPctFromATH]);
+
+  // -----------------------------------------------------------------------
+  // Build the "money chart" data — live or static
+  // -----------------------------------------------------------------------
+  const moneyChartData = useMemo(() => {
+    if (
+      hasLiveSentiment &&
+      hasLiveFees &&
+      ctx.sentiment!.fearGreed.history.length > 0 &&
+      liveQuarterlyRevenue &&
+      liveQuarterlyRevenue.length > 0
+    ) {
+      const built = buildLiveSentimentVsRevenue(
+        ctx.sentiment!.fearGreed.history,
+        liveQuarterlyRevenue
+      );
+      // Only use live data if we got a reasonable number of points
+      if (built.length >= 4) return built;
+    }
+    return sentimentVsRevenueData;
+  }, [hasLiveSentiment, hasLiveFees, ctx.sentiment, liveQuarterlyRevenue]);
+
+  // Compute max revenue for Y-axis domain
+  const maxRevenue = useMemo(() => {
+    const maxVal = Math.max(...moneyChartData.map((d) => d.revenue));
+    return Math.ceil(maxVal / 2) * 2 + 2; // round up to nearest even + buffer
+  }, [moneyChartData]);
+
+  // -----------------------------------------------------------------------
   // Color-code the Fear & Greed value
-  const fgValue = sentimentKeyMetrics.currentFearGreed;
+  // -----------------------------------------------------------------------
   const fgColor =
     fgValue <= 25
       ? "text-red-600"
@@ -275,21 +426,21 @@ export default function Section2Sentiment() {
           label="Fear & Greed Index"
           value={String(fgValue)}
           subvalue={fgLabel}
-          change={`${sentimentKeyMetrics.sentimentPercentileFromATH}% from ATH of ${sentimentKeyMetrics.athFearGreed}`}
+          change={`${sentimentPctFromATH}% from ATH of ${athFG}`}
           changeType="negative"
           className={`border-l-4 border-l-red-500`}
         />
         <StatCard
           label="Quarterly Revenue"
-          value={`$${sentimentKeyMetrics.currentQuarterlyRevenue}B`}
-          subvalue={`${sentimentKeyMetrics.revenuePercentile}th percentile historically`}
+          value={`$${currentQuarterlyRevenue}B`}
+          subvalue={`${revenuePercentile}th percentile historically`}
           change="All-time high range"
           changeType="positive"
           className="border-l-4 border-l-emerald-500"
         />
         <StatCard
           label="Divergence Score"
-          value={String(sentimentKeyMetrics.divergenceScore)}
+          value={String(divergenceScore)}
           subvalue="Composite sentiment-revenue gap"
           change="Highest on record"
           changeType="negative"
@@ -310,119 +461,124 @@ export default function Section2Sentiment() {
           </p>
         </div>
 
-        <ResponsiveContainer width="100%" height={420}>
-          <ComposedChart
-            data={sentimentVsRevenueData}
-            margin={{ top: 10, right: 20, left: 0, bottom: 20 }}
-          >
-            <defs>
-              <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#10b981" stopOpacity={0.3} />
-                <stop offset="100%" stopColor="#10b981" stopOpacity={0.02} />
-              </linearGradient>
-              <linearGradient id="fearGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#ef4444" stopOpacity={0.15} />
-                <stop offset="100%" stopColor="#ef4444" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
+        <ChartExport
+          data={moneyChartData}
+          filename="fear-greed-vs-quarterly-revenue"
+        >
+          <ResponsiveContainer width="100%" height={420}>
+            <ComposedChart
+              data={moneyChartData}
+              margin={{ top: 10, right: 20, left: 0, bottom: 20 }}
+            >
+              <defs>
+                <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="#10b981" stopOpacity={0.02} />
+                </linearGradient>
+                <linearGradient id="fearGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#ef4444" stopOpacity={0.15} />
+                  <stop offset="100%" stopColor="#ef4444" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
 
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
 
-            <XAxis
-              dataKey="date"
-              tick={{ fontSize: 11, fill: "#94a3b8" }}
-              tickLine={false}
-              axisLine={{ stroke: "#e2e8f0" }}
-              angle={-30}
-              textAnchor="end"
-              height={50}
-            />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 11, fill: "#94a3b8" }}
+                tickLine={false}
+                axisLine={{ stroke: "#e2e8f0" }}
+                angle={-30}
+                textAnchor="end"
+                height={50}
+              />
 
-            {/* Left axis: Fear & Greed (0-100) */}
-            <YAxis
-              yAxisId="sentiment"
-              orientation="left"
-              domain={[0, 100]}
-              tick={{ fontSize: 11, fill: "#ef4444" }}
-              tickLine={false}
-              axisLine={{ stroke: "#fecaca" }}
-              label={{
-                value: "Fear & Greed",
-                angle: -90,
-                position: "insideLeft",
-                offset: 10,
-                style: { fill: "#ef4444", fontSize: 12, fontWeight: 600 },
-              }}
-            />
+              {/* Left axis: Fear & Greed (0-100) */}
+              <YAxis
+                yAxisId="sentiment"
+                orientation="left"
+                domain={[0, 100]}
+                tick={{ fontSize: 11, fill: "#ef4444" }}
+                tickLine={false}
+                axisLine={{ stroke: "#fecaca" }}
+                label={{
+                  value: "Fear & Greed",
+                  angle: -90,
+                  position: "insideLeft",
+                  offset: 10,
+                  style: { fill: "#ef4444", fontSize: 12, fontWeight: 600 },
+                }}
+              />
 
-            {/* Right axis: Revenue ($B) */}
-            <YAxis
-              yAxisId="revenue"
-              orientation="right"
-              domain={[0, 18]}
-              tick={{ fontSize: 11, fill: "#059669" }}
-              tickLine={false}
-              axisLine={{ stroke: "#a7f3d0" }}
-              tickFormatter={(v: number) => `$${v}B`}
-              label={{
-                value: "Revenue",
-                angle: 90,
-                position: "insideRight",
-                offset: 10,
-                style: { fill: "#059669", fontSize: 12, fontWeight: 600 },
-              }}
-            />
+              {/* Right axis: Revenue ($B) */}
+              <YAxis
+                yAxisId="revenue"
+                orientation="right"
+                domain={[0, maxRevenue]}
+                tick={{ fontSize: 11, fill: "#059669" }}
+                tickLine={false}
+                axisLine={{ stroke: "#a7f3d0" }}
+                tickFormatter={(v: number) => `$${v}B`}
+                label={{
+                  value: "Revenue",
+                  angle: 90,
+                  position: "insideRight",
+                  offset: 10,
+                  style: { fill: "#059669", fontSize: 12, fontWeight: 600 },
+                }}
+              />
 
-            <Tooltip content={<DivergenceTooltip />} />
+              <Tooltip content={<DivergenceTooltip />} />
 
-            <Legend
-              verticalAlign="top"
-              height={36}
-              iconType="circle"
-              wrapperStyle={{ fontSize: 13 }}
-            />
+              <Legend
+                verticalAlign="top"
+                height={36}
+                iconType="circle"
+                wrapperStyle={{ fontSize: 13 }}
+              />
 
-            {/* Fear & Greed — red area */}
-            <Area
-              yAxisId="sentiment"
-              type="monotone"
-              dataKey="fearGreed"
-              name="Fear & Greed Index"
-              stroke="#ef4444"
-              strokeWidth={2.5}
-              fill="url(#fearGradient)"
-              dot={{ r: 3, fill: "#ef4444", strokeWidth: 0 }}
-              activeDot={{ r: 5, stroke: "#fff", strokeWidth: 2 }}
-            />
+              {/* Fear & Greed — red area */}
+              <Area
+                yAxisId="sentiment"
+                type="monotone"
+                dataKey="fearGreed"
+                name="Fear & Greed Index"
+                stroke="#ef4444"
+                strokeWidth={2.5}
+                fill="url(#fearGradient)"
+                dot={{ r: 3, fill: "#ef4444", strokeWidth: 0 }}
+                activeDot={{ r: 5, stroke: "#fff", strokeWidth: 2 }}
+              />
 
-            {/* Revenue — green area */}
-            <Area
-              yAxisId="revenue"
-              type="monotone"
-              dataKey="revenue"
-              name="Quarterly Revenue ($B)"
-              stroke="#10b981"
-              strokeWidth={2.5}
-              fill="url(#revenueGradient)"
-              dot={{ r: 3, fill: "#10b981", strokeWidth: 0 }}
-              activeDot={{ r: 5, stroke: "#fff", strokeWidth: 2 }}
-            />
+              {/* Revenue — green area */}
+              <Area
+                yAxisId="revenue"
+                type="monotone"
+                dataKey="revenue"
+                name="Quarterly Revenue ($B)"
+                stroke="#10b981"
+                strokeWidth={2.5}
+                fill="url(#revenueGradient)"
+                dot={{ r: 3, fill: "#10b981", strokeWidth: 0 }}
+                activeDot={{ r: 5, stroke: "#fff", strokeWidth: 2 }}
+              />
 
-            {/* Neutral line at 50 for Fear & Greed */}
-            <ReferenceLine
-              yAxisId="sentiment"
-              y={50}
-              stroke="#fca5a5"
-              strokeDasharray="6 4"
-              strokeWidth={1}
-              label={{
-                value: "Neutral (50)",
-                position: "left",
-                style: { fontSize: 10, fill: "#f87171" },
-              }}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
+              {/* Neutral line at 50 for Fear & Greed */}
+              <ReferenceLine
+                yAxisId="sentiment"
+                y={50}
+                stroke="#fca5a5"
+                strokeDasharray="6 4"
+                strokeWidth={1}
+                label={{
+                  value: "Neutral (50)",
+                  position: "left",
+                  style: { fontSize: 10, fill: "#f87171" },
+                }}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </ChartExport>
 
         <DataSource
           sources={[
@@ -436,19 +592,22 @@ export default function Section2Sentiment() {
 
       {/* ---- Percentile Divergence + Insight ---- */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
-        <PercentileDivergenceVisual />
+        <PercentileDivergenceVisual
+          sentimentPctFromATH={sentimentPctFromATH}
+          revenuePct={revenuePercentile}
+        />
 
         <div className="flex flex-col gap-5">
           <InsightBox title="The Key Thesis" type="highlight">
             <p>
               Sentiment is{" "}
               <strong>
-                {Math.abs(sentimentKeyMetrics.sentimentPercentileFromATH)}% below
+                {Math.abs(sentimentPctFromATH)}% below
                 its all-time high
               </strong>{" "}
               while revenue sits in the{" "}
               <strong>
-                {sentimentKeyMetrics.revenuePercentile}th percentile
+                {revenuePercentile}th percentile
               </strong>{" "}
               of its entire history. This level of divergence has never occurred
               before in crypto. The market is pricing in fear while the
@@ -468,7 +627,7 @@ export default function Section2Sentiment() {
         </div>
       </div>
 
-      {/* ---- ETH Flows Chart ---- */}
+      {/* ---- ETH Flows Chart (static — editorial data) ---- */}
       <Card className="mb-10">
         <div className="mb-6">
           <h3 className="text-xl font-bold text-slate-900">
@@ -481,82 +640,87 @@ export default function Section2Sentiment() {
           </p>
         </div>
 
-        <ResponsiveContainer width="100%" height={320}>
-          <ComposedChart
-            data={ethFlowsData}
-            margin={{ top: 10, right: 20, left: 0, bottom: 10 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-
-            <XAxis
-              dataKey="period"
-              tick={{ fontSize: 12, fill: "#94a3b8" }}
-              tickLine={false}
-              axisLine={{ stroke: "#e2e8f0" }}
-            />
-
-            <YAxis
-              yAxisId="flows"
-              tick={{ fontSize: 11, fill: "#94a3b8" }}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(v: number) => `${v >= 0 ? "+" : ""}$${v}B`}
-            />
-
-            <YAxis
-              yAxisId="price"
-              orientation="right"
-              tick={{ fontSize: 11, fill: "#8b5cf6" }}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`}
-            />
-
-            <Tooltip content={<EthFlowsTooltip />} />
-
-            <ReferenceLine
-              yAxisId="flows"
-              y={0}
-              stroke="#94a3b8"
-              strokeWidth={1.5}
-              strokeDasharray="4 3"
-            />
-
-            <Bar
-              yAxisId="flows"
-              dataKey="netFlows"
-              name="Net Flows ($B)"
-              radius={[6, 6, 0, 0]}
-              maxBarSize={48}
+        <ChartExport
+          data={ethFlowsData}
+          filename="eth-net-flows-sentiment-barometer"
+        >
+          <ResponsiveContainer width="100%" height={320}>
+            <ComposedChart
+              data={ethFlowsData}
+              margin={{ top: 10, right: 20, left: 0, bottom: 10 }}
             >
-              {ethFlowsData.map((entry, index) => (
-                <Cell
-                  key={`cell-${index}`}
-                  fill={entry.netFlows >= 0 ? "#10b981" : "#ef4444"}
-                  fillOpacity={0.85}
-                />
-              ))}
-            </Bar>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
 
-            <Line
-              yAxisId="price"
-              type="monotone"
-              dataKey="price"
-              name="ETH Price"
-              stroke="#8b5cf6"
-              strokeWidth={2.5}
-              dot={{ r: 4, fill: "#8b5cf6", strokeWidth: 0 }}
-              activeDot={{ r: 6, stroke: "#fff", strokeWidth: 2 }}
-            />
+              <XAxis
+                dataKey="period"
+                tick={{ fontSize: 12, fill: "#94a3b8" }}
+                tickLine={false}
+                axisLine={{ stroke: "#e2e8f0" }}
+              />
 
-            <Legend
-              verticalAlign="top"
-              height={36}
-              iconType="circle"
-              wrapperStyle={{ fontSize: 13 }}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
+              <YAxis
+                yAxisId="flows"
+                tick={{ fontSize: 11, fill: "#94a3b8" }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v: number) => `${v >= 0 ? "+" : ""}$${v}B`}
+              />
+
+              <YAxis
+                yAxisId="price"
+                orientation="right"
+                tick={{ fontSize: 11, fill: "#8b5cf6" }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`}
+              />
+
+              <Tooltip content={<EthFlowsTooltip />} />
+
+              <ReferenceLine
+                yAxisId="flows"
+                y={0}
+                stroke="#94a3b8"
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+              />
+
+              <Bar
+                yAxisId="flows"
+                dataKey="netFlows"
+                name="Net Flows ($B)"
+                radius={[6, 6, 0, 0]}
+                maxBarSize={48}
+              >
+                {ethFlowsData.map((entry, index) => (
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={entry.netFlows >= 0 ? "#10b981" : "#ef4444"}
+                    fillOpacity={0.85}
+                  />
+                ))}
+              </Bar>
+
+              <Line
+                yAxisId="price"
+                type="monotone"
+                dataKey="price"
+                name="ETH Price"
+                stroke="#8b5cf6"
+                strokeWidth={2.5}
+                dot={{ r: 4, fill: "#8b5cf6", strokeWidth: 0 }}
+                activeDot={{ r: 6, stroke: "#fff", strokeWidth: 2 }}
+              />
+
+              <Legend
+                verticalAlign="top"
+                height={36}
+                iconType="circle"
+                wrapperStyle={{ fontSize: 13 }}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </ChartExport>
 
         <DataSource
           sources={[
@@ -568,7 +732,7 @@ export default function Section2Sentiment() {
         />
       </Card>
 
-      {/* ---- TradFi Parallels ---- */}
+      {/* ---- TradFi Parallels (static — editorial) ---- */}
       <div className="mb-10">
         <div className="mb-6">
           <h3 className="text-xl font-bold text-slate-900">

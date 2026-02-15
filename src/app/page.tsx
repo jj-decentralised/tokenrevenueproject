@@ -6,7 +6,7 @@ import Section2Sentiment from "@/components/sections/Section2Sentiment";
 import Section3Quality from "@/components/sections/Section3Quality";
 import Section4Moats from "@/components/sections/Section4Moats";
 import Section5NextLeaders from "@/components/sections/Section5NextLeaders";
-import { useRevenueData } from "@/lib/useData";
+import { useDataContext } from "@/lib/DataContext";
 import { DataStatus } from "@/components/ui/DataStatus";
 
 const NAV_ITEMS = [
@@ -20,15 +20,12 @@ const NAV_ITEMS = [
 type SectionId = (typeof NAV_ITEMS)[number]["id"];
 
 export default function HomePage() {
-  // Live data fetching layer — sections still import static data directly,
-  // but `liveData` is available for future integration when individual
-  // sections are wired up to accept it as a prop.
-  const { data: liveData, isLive, isLoading, lastUpdated, errors } = useRevenueData();
+  const { isLive, isLoading, lastUpdated, errors } = useDataContext();
 
   // Log API errors in dev for debugging (not shown to user)
   useEffect(() => {
     if (errors.length > 0 && process.env.NODE_ENV === "development") {
-      console.warn("[useRevenueData] API errors:", errors);
+      console.warn("[DataContext] API errors:", errors);
     }
   }, [errors]);
 
@@ -207,8 +204,8 @@ export default function HomePage() {
         <div className="max-w-3xl">
           <p className="text-sm font-medium text-slate-900 mb-3">Data Sources</p>
           <p className="text-sm text-slate-500 leading-relaxed">
-            1kx Revenue Report &middot; DefiLlama &middot; TokenTerminal &middot;
-            CoinGecko &middot; WorldPERatio &middot; Alternative.me
+            DefiLlama (live) &middot; TokenTerminal (live) &middot;
+            CoinGecko (live) &middot; Alternative.me (live)
           </p>
           <div className="mt-6 flex items-center gap-4">
             <a
