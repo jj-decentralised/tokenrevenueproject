@@ -10,6 +10,7 @@ export const CATEGORY_GROUP: Record<string, string> = {
   // DeFi
   DeFi: "DeFi",
   Dexes: "DeFi",
+  Dexs: "DeFi", // actual DefiLlama API spelling
   DEX: "DeFi",
   Lending: "DeFi",
   Yield: "DeFi",
@@ -19,7 +20,9 @@ export const CATEGORY_GROUP: Record<string, string> = {
   Perpetuals: "DeFi",
   Bridge: "DeFi",
   CDP: "DeFi",
+  "CDP Manager": "DeFi",
   Options: "DeFi",
+  "Options Vault": "DeFi",
   Insurance: "DeFi",
   Liquidations: "DeFi",
   "Leveraged Farming": "DeFi",
@@ -34,6 +37,7 @@ export const CATEGORY_GROUP: Record<string, string> = {
   RWA: "DeFi",
   MEV: "DeFi",
   "Liquidity Manager": "DeFi",
+  "Liquidity manager": "DeFi", // case variant from API
   Farm: "DeFi",
   "Leveraged Yield": "DeFi",
   "Uncollateralized Lending": "DeFi",
@@ -46,9 +50,18 @@ export const CATEGORY_GROUP: Record<string, string> = {
   "Staking Pool": "DeFi",
   "Cross Chain": "DeFi",
   "Decentralized Stablecoin": "DeFi",
+  "Prediction Market": "DeFi",
+  "Leveraged Lending": "DeFi",
+  "NFT Lending": "DeFi",
+  Staking: "DeFi",
+  "Liquid Staking Governance": "DeFi",
+  "Basis Trading": "DeFi",
+  "Leveraged Staking": "DeFi",
+  "Concentrated Liquidity Manager": "DeFi",
 
   // Stablecoins
   Stablecoins: "Stablecoins",
+  Stablecoin: "Stablecoins",
 
   // Exchanges
   Exchanges: "Exchanges",
@@ -73,15 +86,15 @@ export const CATEGORY_GROUP: Record<string, string> = {
   "ZK Rollup": "Blockchains",
   Validium: "Blockchains",
   DA: "Blockchains",
+  Appchain: "Blockchains",
+  "Move VM": "Blockchains",
 
   // Consumer
   Consumer: "Consumer",
   NFT: "Consumer",
   "NFT Marketplace": "Consumer",
-  "NFT Lending": "Consumer",
   Gaming: "Consumer",
   Social: "Consumer",
-  "Prediction Market": "Consumer",
   Launchpad: "Consumer",
   SocialFi: "Consumer",
   "Fan Token": "Consumer",
@@ -95,6 +108,7 @@ export const CATEGORY_GROUP: Record<string, string> = {
   Wallet: "Consumer",
   Payment: "Consumer",
   Payments: "Consumer",
+  Meme: "Consumer",
 
   // DePIN
   DePIN: "DePIN",
@@ -102,6 +116,8 @@ export const CATEGORY_GROUP: Record<string, string> = {
   Storage: "DePIN",
   IoT: "DePIN",
   DeWi: "DePIN",
+  AI: "DePIN",
+  GPU: "DePIN",
 
   // Infrastructure
   Middleware: "Infrastructure",
@@ -115,9 +131,176 @@ export const CATEGORY_GROUP: Record<string, string> = {
   RPC: "Infrastructure",
   API: "Infrastructure",
   Analytics: "Infrastructure",
+  Indexer: "Infrastructure",
 
   // Other
   Other: "Other",
+};
+
+// ---------------------------------------------------------------------------
+// Protocol slug → category overrides for protocols with null categories
+// Many top fee-generating protocols on DefiLlama have null categories.
+// ---------------------------------------------------------------------------
+
+export const PROTOCOL_CATEGORY_OVERRIDES: Record<string, string> = {
+  // DEXes / AMMs
+  "pancakeswap": "Dexs",
+  "pancakeswap-amm": "Dexs",
+  "pancakeswap-amm-v3": "Dexs",
+  "raydium": "Dexs",
+  "raydium-amm": "Dexs",
+  "raydium-cpmm": "Dexs",
+  "orca": "Dexs",
+  "trader-joe": "Dexs",
+  "trader-joe-v2.1": "Dexs",
+  "sushiswap": "Dexs",
+  "camelot": "Dexs",
+  "camelot-v3": "Dexs",
+  "velodrome": "Dexs",
+  "aerodrome": "Dexs",
+  "thena": "Dexs",
+  "balancer": "Dexs",
+  "balancer-v2": "Dexs",
+  "jupiter-aggregator": "DEX Aggregator",
+  "1inch-network": "DEX Aggregator",
+  "paraswap": "DEX Aggregator",
+  "0x-protocol": "DEX Aggregator",
+  "dodo": "Dexs",
+  "maverick-protocol": "Dexs",
+  "ambient-finance": "Dexs",
+  "meteora": "Dexs",
+
+  // Perps / Derivatives
+  "hyperliquid": "Perpetuals",
+  "gmx": "Perpetuals",
+  "gmx-v2": "Perpetuals",
+  "dydx": "Perpetuals",
+  "dydx-v4": "Perpetuals",
+  "drift-protocol": "Perpetuals",
+  "jupiter-perpetual-exchange": "Perpetuals",
+  "vertex-protocol": "Perpetuals",
+  "kwenta": "Perpetuals",
+  "gains-network": "Perpetuals",
+  "synthetix": "Derivatives",
+  "polymarket": "Prediction Market",
+  "azuro": "Prediction Market",
+
+  // Wallets
+  "metamask": "Wallet",
+  "metamask-swap": "Wallet",
+  "phantom": "Wallet",
+  "phantom-swap": "Wallet",
+  "rabby-swap": "Wallet",
+  "coinbase-wallet": "Wallet",
+  "trust-wallet-swap": "Wallet",
+
+  // Liquid Staking / MEV
+  "jito": "MEV",
+  "jito-tips": "MEV",
+  "lido": "Liquid Staking",
+  "rocket-pool": "Liquid Staking",
+  "eigenlayer": "Restaking",
+  "eigenpie": "Liquid Restaking",
+  "marinade-finance": "Liquid Staking",
+  "coinbase-wrapped-staked-eth": "Liquid Staking",
+
+  // Lending
+  "aave": "Lending",
+  "aave-v2": "Lending",
+  "aave-v3": "Lending",
+  "compound": "Lending",
+  "compound-v3": "Lending",
+  "morpho": "Lending",
+  "morpho-blue": "Lending",
+  "spark": "Lending",
+  "venus": "Lending",
+  "benqi-lending": "Lending",
+  "kamino-lending": "Lending",
+
+  // Stablecoins / CDP
+  "maker": "CDP",
+  "makerdao": "CDP",
+  "sky-lending": "CDP",
+  "tether": "Stablecoins",
+  "circle": "Stablecoins",
+  "dai": "Stablecoins",
+  "ethena": "Stablecoins",
+  "frax": "Stablecoins",
+  "rai": "CDP",
+
+  // Bridges
+  "across-protocol": "Bridge",
+  "stargate": "Bridge",
+  "wormhole": "Bridge",
+  "layerzero": "Bridge",
+  "hop-protocol": "Bridge",
+  "synapse": "Bridge",
+
+  // Consumer / Launchpads
+  "pump.fun": "Launchpad",
+  "pumpfun": "Launchpad",
+  "friend.tech": "SocialFi",
+  "friendtech": "SocialFi",
+  "opensea": "NFT Marketplace",
+  "blur": "NFT Marketplace",
+  "magic-eden": "NFT Marketplace",
+  "rarible": "NFT Marketplace",
+  "x2y2": "NFT Marketplace",
+  "moonwell": "Lending",
+  "farcaster": "SocialFi",
+  "lens-protocol": "SocialFi",
+  "stepn": "Move-To-Earn",
+  "axie-infinity": "Gaming",
+
+  // Infrastructure / Oracles
+  "chainlink": "Oracle",
+  "pyth-network": "Oracle",
+  "the-graph": "Indexer",
+  "filecoin": "Storage",
+  "arweave": "Storage",
+  "render": "Compute",
+  "akash-network": "Compute",
+  "helium": "DeWi",
+  "hivemapper": "DePIN",
+
+  // Chains (parent protocols sometimes have null category)
+  "ethereum": "Chain",
+  "bitcoin": "Chain",
+  "solana": "Chain",
+  "avalanche": "Chain",
+  "polygon": "Chain",
+  "arbitrum": "Chain",
+  "optimism": "Chain",
+  "base": "Chain",
+  "bnb-chain": "Chain",
+  "bsc": "Chain",
+  "tron": "Chain",
+  "fantom": "Chain",
+  "sui": "Chain",
+  "aptos": "Chain",
+  "near": "Chain",
+  "sei": "Chain",
+  "mantle": "Chain",
+  "scroll": "Chain",
+  "linea": "Chain",
+  "zksync-era": "Chain",
+  "starknet": "Chain",
+  "blast": "Chain",
+  "mode": "Chain",
+  "manta-pacific": "Chain",
+  "merlin-chain": "Chain",
+  "celo": "Chain",
+  "gnosis": "Chain",
+  "moonbeam": "Chain",
+  "cronos": "Chain",
+  "kava": "Chain",
+  "hedera": "Chain",
+  "cardano": "Chain",
+  "polkadot": "Chain",
+  "cosmos-hub": "Chain",
+  "injective": "Chain",
+  "osmosis": "Chain",
+  "ton": "Chain",
 };
 
 // ---------------------------------------------------------------------------
@@ -135,123 +318,53 @@ export const GROUP_COLORS: Record<string, string> = {
   Other: "#94a3b8",
 };
 
-export const CATEGORY_COLORS: Record<string, string> = {
-  // DeFi
-  DeFi: "#3b82f6",
-  Dexes: "#3b82f6",
-  DEX: "#3b82f6",
-  Lending: "#3b82f6",
-  Yield: "#3b82f6",
-  "Yield Aggregator": "#3b82f6",
-  "Liquid Staking": "#3b82f6",
-  Derivatives: "#3b82f6",
-  Perpetuals: "#3b82f6",
-  Bridge: "#3b82f6",
-  CDP: "#3b82f6",
-  Liquidations: "#3b82f6",
-  "Leveraged Farming": "#3b82f6",
-  Options: "#3b82f6",
-  Insurance: "#3b82f6",
-  "DEX Aggregator": "#3b82f6",
-  Synthetics: "#3b82f6",
-  Indexes: "#3b82f6",
-  "Reserve Currency": "#3b82f6",
-  "Algo-Stables": "#3b82f6",
-  "NFT Fi": "#3b82f6",
-  "Liquid Restaking": "#3b82f6",
-  Restaking: "#3b82f6",
-  RWA: "#3b82f6",
-  MEV: "#3b82f6",
-  "Liquidity Manager": "#3b82f6",
-  Farm: "#3b82f6",
-  "Leveraged Yield": "#3b82f6",
-  "Uncollateralized Lending": "#3b82f6",
-  "Flash Loans": "#3b82f6",
-  AMM: "#3b82f6",
-  "Margin Trading": "#3b82f6",
-  "Borrowing Lending": "#3b82f6",
-  SoFi: "#3b82f6",
-  "Structured Products": "#3b82f6",
-  "Staking Pool": "#3b82f6",
-  "Cross Chain": "#3b82f6",
-  "Decentralized Stablecoin": "#3b82f6",
-  // Stablecoins
-  Stablecoins: "#10b981",
-  // Exchanges
-  Exchanges: "#8b5cf6",
-  CEX: "#8b5cf6",
-  // Blockchains
-  Blockchains: "#f59e0b",
-  Chain: "#f59e0b",
-  EVM: "#f59e0b",
-  "EVM Compatible": "#f59e0b",
-  Rollup: "#f59e0b",
-  Parachain: "#f59e0b",
-  Cosmos: "#f59e0b",
-  Sidechain: "#f59e0b",
-  Subnet: "#f59e0b",
-  L1: "#f59e0b",
-  L2: "#f59e0b",
-  Blockchain: "#f59e0b",
-  "Modular Blockchain": "#f59e0b",
-  "Bitcoin Sidechain": "#f59e0b",
-  "Optimistic Rollup": "#f59e0b",
-  "ZK Rollup": "#f59e0b",
-  Validium: "#f59e0b",
-  DA: "#f59e0b",
-  // Consumer
-  Consumer: "#ef4444",
-  "NFT Marketplace": "#ef4444",
-  "NFT Lending": "#ef4444",
-  Gaming: "#ef4444",
-  Social: "#ef4444",
-  "Prediction Market": "#ef4444",
-  Launchpad: "#ef4444",
-  SocialFi: "#ef4444",
-  "Fan Token": "#ef4444",
-  Gambling: "#ef4444",
-  Identity: "#ef4444",
-  Music: "#ef4444",
-  Metaverse: "#ef4444",
-  "Play-To-Earn": "#ef4444",
-  "Move-To-Earn": "#ef4444",
-  NFT: "#ef4444",
-  Creator: "#ef4444",
-  // DePIN
-  DePIN: "#ec4899",
-  Compute: "#ec4899",
-  Storage: "#ec4899",
-  IoT: "#ec4899",
-  DeWi: "#ec4899",
-  // Infrastructure
-  Middleware: "#6366f1",
-  Oracle: "#6366f1",
-  Data: "#6366f1",
-  Infrastructure: "#6366f1",
-  Interoperability: "#6366f1",
-  Privacy: "#6366f1",
-  Automation: "#6366f1",
-  Relayer: "#6366f1",
-  RPC: "#6366f1",
-  API: "#6366f1",
-  Analytics: "#6366f1",
-  // Wallets
-  Wallet: "#06b6d4",
-  Payment: "#06b6d4",
-  Payments: "#06b6d4",
-};
+export const CATEGORY_COLORS: Record<string, string> = (() => {
+  // Generate from CATEGORY_GROUP → GROUP_COLORS mapping
+  const colors: Record<string, string> = {};
+  for (const [cat, group] of Object.entries(CATEGORY_GROUP)) {
+    colors[cat] = GROUP_COLORS[group] || "#94a3b8";
+  }
+  return colors;
+})();
 
 // ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------
 
-export function getCategoryGroup(category: string): string {
-  return CATEGORY_GROUP[category] || "Other";
+// Case-insensitive lookup built from CATEGORY_GROUP
+const CATEGORY_GROUP_CI = new Map<string, string>();
+for (const [k, v] of Object.entries(CATEGORY_GROUP)) {
+  CATEGORY_GROUP_CI.set(k.toLowerCase(), v);
 }
 
-export function getCategoryColor(category: string): string {
-  const group = getCategoryGroup(category);
-  return CATEGORY_COLORS[category] || GROUP_COLORS[group] || "#94a3b8";
+/**
+ * Get the top-level group for a raw category string.
+ * Optionally pass a slug to check PROTOCOL_CATEGORY_OVERRIDES.
+ */
+export function getCategoryGroup(category: string, slug?: string): string {
+  // 1. Direct lookup
+  const direct = CATEGORY_GROUP[category];
+  if (direct) return direct;
+
+  // 2. Case-insensitive lookup
+  const ci = CATEGORY_GROUP_CI.get(category.toLowerCase());
+  if (ci) return ci;
+
+  // 3. Slug-based override (for protocols with null/Other category)
+  if (slug) {
+    const override = PROTOCOL_CATEGORY_OVERRIDES[slug.toLowerCase()];
+    if (override) {
+      const overrideGroup = CATEGORY_GROUP[override];
+      if (overrideGroup) return overrideGroup;
+    }
+  }
+
+  return "Other";
+}
+
+export function getCategoryColor(category: string, slug?: string): string {
+  const group = getCategoryGroup(category, slug);
+  return GROUP_COLORS[group] || "#94a3b8";
 }
 
 // CoinGecko category keywords → group mapping

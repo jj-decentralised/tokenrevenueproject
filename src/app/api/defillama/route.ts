@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PROTOCOL_CATEGORY_OVERRIDES } from "@/lib/categories";
 
 // ----------------------------------------------------------------
 // GET /api/defillama?type=overview|protocol|chain|revenue|holders[&name=<slug>]
@@ -145,6 +146,33 @@ function safeNum(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Infer a category from slug / name when the API returns null. */
+function inferCategory(slug: string, name: string): string | null {
+  const s = slug.toLowerCase();
+  // Check slug overrides
+  const override = PROTOCOL_CATEGORY_OVERRIDES[s];
+  if (override) return override;
+
+  // Name-based heuristics
+  const n = name.toLowerCase();
+  if (/swap|dex|amm/.test(n)) return "Dexs";
+  if (/lend|borrow|credit/.test(n)) return "Lending";
+  if (/stak(?:e|ing)/.test(n)) return "Liquid Staking";
+  if (/bridge/.test(n)) return "Bridge";
+  if (/perp|future/.test(n)) return "Perpetuals";
+  if (/option/.test(n)) return "Options";
+  if (/nft|collectible/.test(n)) return "NFT Marketplace";
+  if (/game|gaming|play/.test(n)) return "Gaming";
+  if (/wallet|pay/.test(n)) return "Wallet";
+  if (/stable/i.test(n)) return "Stablecoins";
+  if (/oracle|feed/.test(n)) return "Oracle";
+  if (/render|compute|gpu/.test(n)) return "Compute";
+  if (/storage|file/.test(n)) return "Storage";
+  if (/chain|network/.test(n)) return "Chain";
+
+  return null;
+}
+
 /** Parse a protocol from the fees overview response (default dataType). */
 function parseFeeProtocol(p: Record<string, unknown>): ProtocolFeeRecord {
   const methodology =
@@ -154,11 +182,17 @@ function parseFeeProtocol(p: Record<string, unknown>): ProtocolFeeRecord {
         )
       : null;
 
+  const slug = String(p.slug ?? p.module ?? p.name ?? "");
+  const name = String(p.name ?? "");
+  const rawCategory = p.category ? String(p.category) : null;
+  // When API returns null, try to infer from slug/name
+  const category = rawCategory ?? inferCategory(slug, name);
+
   return {
-    name: String(p.name ?? ""),
+    name,
     displayName: String(p.displayName ?? p.name ?? ""),
-    slug: String(p.slug ?? p.module ?? p.name ?? ""),
-    category: p.category ? String(p.category) : null,
+    slug,
+    category,
     logo: p.logo ? String(p.logo) : null,
     defillamaId: p.defillamaId != null ? String(p.defillamaId) : (p.id != null ? String(p.id) : null),
     parentProtocol: p.parentProtocol ? String(p.parentProtocol) : null,

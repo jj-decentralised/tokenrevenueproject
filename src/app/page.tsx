@@ -9,6 +9,7 @@ import Section5NextLeaders from "@/components/sections/Section5NextLeaders";
 import Section6Protocols from "@/components/sections/Section6Protocols";
 import Section7Analytics from "@/components/sections/Section7Analytics";
 import SectionCategoryRevenue from "@/components/sections/SectionCategoryRevenue";
+import SectionScatterAnalysis from "@/components/sections/SectionScatterAnalysis";
 import { useDataContext } from "@/lib/DataContext";
 import { DataStatus } from "@/components/ui/DataStatus";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { id: "moats", label: "Moats" },
   { id: "next-leaders", label: "Next Leaders" },
   { id: "protocols", label: "Protocol Explorer" },
+  { id: "scatter", label: "Scatter Analysis" },
   { id: "analytics", label: "Analytics" },
 ] as const;
 
@@ -45,6 +47,7 @@ export default function HomePage() {
     moats: null,
     "next-leaders": null,
     protocols: null,
+    scatter: null,
     analytics: null,
   });
   const isScrollingToSection = useRef(false);
@@ -242,6 +245,16 @@ export default function HomePage() {
         >
           <ErrorBoundary>
             <Section6Protocols />
+          </ErrorBoundary>
+        </div>
+
+        <div
+          id="scatter"
+          data-section-id="scatter"
+          ref={setSectionRef("scatter")}
+        >
+          <ErrorBoundary>
+            <SectionScatterAnalysis />
           </ErrorBoundary>
         </div>
 

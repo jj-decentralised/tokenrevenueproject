@@ -22,230 +22,18 @@ import {
   SectionHeader,
   DataSource,
 } from "@/components/ui/Card";
+import {
+  CATEGORY_GROUP as SHARED_CATEGORY_GROUP,
+  CATEGORY_COLORS as SHARED_CATEGORY_COLORS,
+  GROUP_COLORS,
+} from "@/lib/categories";
 
 // ---------------------------------------------------------------------------
 // Category color map (WSJ-style)
 // ---------------------------------------------------------------------------
 
-const CATEGORY_COLORS: Record<string, string> = {
-  // DeFi
-  DeFi: "#3b82f6",
-  Dexes: "#3b82f6",
-  DEX: "#3b82f6",
-  Lending: "#3b82f6",
-  Yield: "#3b82f6",
-  "Yield Aggregator": "#3b82f6",
-  "Liquid Staking": "#3b82f6",
-  Derivatives: "#3b82f6",
-  Perpetuals: "#3b82f6",
-  Bridge: "#3b82f6",
-  CDP: "#3b82f6",
-  Liquidations: "#3b82f6",
-  "Leveraged Farming": "#3b82f6",
-  Options: "#3b82f6",
-  Insurance: "#3b82f6",
-  "DEX Aggregator": "#3b82f6",
-  Synthetics: "#3b82f6",
-  Indexes: "#3b82f6",
-  "Reserve Currency": "#3b82f6",
-  "Algo-Stables": "#3b82f6",
-  "NFT Fi": "#3b82f6",
-  "Liquid Restaking": "#3b82f6",
-  Restaking: "#3b82f6",
-  RWA: "#3b82f6",
-  MEV: "#3b82f6",
-  "Liquidity Manager": "#3b82f6",
-  Farm: "#3b82f6",
-  "Leveraged Yield": "#3b82f6",
-  "Uncollateralized Lending": "#3b82f6",
-  "Flash Loans": "#3b82f6",
-  AMM: "#3b82f6",
-  "Margin Trading": "#3b82f6",
-  "Borrowing Lending": "#3b82f6",
-  SoFi: "#3b82f6",
-  "Structured Products": "#3b82f6",
-  "Staking Pool": "#3b82f6",
-  "Cross Chain": "#3b82f6",
-  "Decentralized Stablecoin": "#3b82f6",
-  // Stablecoins
-  Stablecoins: "#10b981",
-  // Exchanges
-  Exchanges: "#8b5cf6",
-  CEX: "#8b5cf6",
-  // Blockchains
-  Blockchains: "#f59e0b",
-  Chain: "#f59e0b",
-  EVM: "#f59e0b",
-  "EVM Compatible": "#f59e0b",
-  Rollup: "#f59e0b",
-  Parachain: "#f59e0b",
-  Cosmos: "#f59e0b",
-  Sidechain: "#f59e0b",
-  Subnet: "#f59e0b",
-  L1: "#f59e0b",
-  L2: "#f59e0b",
-  Blockchain: "#f59e0b",
-  "Modular Blockchain": "#f59e0b",
-  "Bitcoin Sidechain": "#f59e0b",
-  "Optimistic Rollup": "#f59e0b",
-  "ZK Rollup": "#f59e0b",
-  Validium: "#f59e0b",
-  DA: "#f59e0b",
-  // Consumer
-  Consumer: "#ef4444",
-  "NFT Marketplace": "#ef4444",
-  "NFT Lending": "#ef4444",
-  Gaming: "#ef4444",
-  Social: "#ef4444",
-  "Prediction Market": "#ef4444",
-  Launchpad: "#ef4444",
-  SocialFi: "#ef4444",
-  "Fan Token": "#ef4444",
-  Gambling: "#ef4444",
-  Identity: "#ef4444",
-  Music: "#ef4444",
-  Metaverse: "#ef4444",
-  "Play-To-Earn": "#ef4444",
-  "Move-To-Earn": "#ef4444",
-  NFT: "#ef4444",
-  Creator: "#ef4444",
-  // DePIN
-  DePIN: "#ec4899",
-  Compute: "#ec4899",
-  Storage: "#ec4899",
-  IoT: "#ec4899",
-  DeWi: "#ec4899",
-  // Infrastructure
-  Middleware: "#6366f1",
-  Oracle: "#6366f1",
-  Data: "#6366f1",
-  Infrastructure: "#6366f1",
-  Interoperability: "#6366f1",
-  Privacy: "#6366f1",
-  Automation: "#6366f1",
-  Relayer: "#6366f1",
-  RPC: "#6366f1",
-  API: "#6366f1",
-  Analytics: "#6366f1",
-  // Wallets
-  Wallet: "#06b6d4",
-  Payment: "#06b6d4",
-  Payments: "#06b6d4",
-};
-
-const CATEGORY_GROUP: Record<string, string> = {
-  // DeFi
-  DeFi: "DeFi",
-  Dexes: "DeFi",
-  DEX: "DeFi",
-  Lending: "DeFi",
-  Yield: "DeFi",
-  "Yield Aggregator": "DeFi",
-  "Liquid Staking": "DeFi",
-  Derivatives: "DeFi",
-  Perpetuals: "DeFi",
-  Bridge: "DeFi",
-  CDP: "DeFi",
-  Options: "DeFi",
-  Insurance: "DeFi",
-  Liquidations: "DeFi",
-  "Leveraged Farming": "DeFi",
-  "DEX Aggregator": "DeFi",
-  Synthetics: "DeFi",
-  Indexes: "DeFi",
-  "Reserve Currency": "DeFi",
-  "Algo-Stables": "DeFi",
-  "NFT Fi": "DeFi",
-  "Liquid Restaking": "DeFi",
-  Restaking: "DeFi",
-  RWA: "DeFi",
-  MEV: "DeFi",
-  "Liquidity Manager": "DeFi",
-  Farm: "DeFi",
-  "Leveraged Yield": "DeFi",
-  "Uncollateralized Lending": "DeFi",
-  "Flash Loans": "DeFi",
-  AMM: "DeFi",
-  "Margin Trading": "DeFi",
-  "Borrowing Lending": "DeFi",
-  SoFi: "DeFi",
-  "Structured Products": "DeFi",
-  "Staking Pool": "DeFi",
-  "Cross Chain": "DeFi",
-  "Decentralized Stablecoin": "DeFi",
-
-  // Stablecoins
-  Stablecoins: "Stablecoins",
-
-  // Exchanges
-  Exchanges: "Exchanges",
-  CEX: "Exchanges",
-
-  // Blockchains
-  Blockchains: "Blockchains",
-  Chain: "Blockchains",
-  EVM: "Blockchains",
-  "EVM Compatible": "Blockchains",
-  Rollup: "Blockchains",
-  Parachain: "Blockchains",
-  Cosmos: "Blockchains",
-  Sidechain: "Blockchains",
-  Subnet: "Blockchains",
-  L1: "Blockchains",
-  L2: "Blockchains",
-  Blockchain: "Blockchains",
-  "Modular Blockchain": "Blockchains",
-  "Bitcoin Sidechain": "Blockchains",
-  "Optimistic Rollup": "Blockchains",
-  "ZK Rollup": "Blockchains",
-  Validium: "Blockchains",
-  DA: "Blockchains",
-
-  // Consumer
-  Consumer: "Consumer",
-  NFT: "Consumer",
-  "NFT Marketplace": "Consumer",
-  "NFT Lending": "Consumer",
-  Gaming: "Consumer",
-  Social: "Consumer",
-  "Prediction Market": "Consumer",
-  Launchpad: "Consumer",
-  SocialFi: "Consumer",
-  "Fan Token": "Consumer",
-  Gambling: "Consumer",
-  Identity: "Consumer",
-  Music: "Consumer",
-  Metaverse: "Consumer",
-  "Play-To-Earn": "Consumer",
-  "Move-To-Earn": "Consumer",
-  Creator: "Consumer",
-  Wallet: "Consumer",
-  Payment: "Consumer",
-  Payments: "Consumer",
-
-  // DePIN
-  DePIN: "DePIN",
-  Compute: "DePIN",
-  Storage: "DePIN",
-  IoT: "DePIN",
-  DeWi: "DePIN",
-
-  // Infrastructure
-  Middleware: "Infrastructure",
-  Oracle: "Infrastructure",
-  Data: "Infrastructure",
-  Infrastructure: "Infrastructure",
-  Interoperability: "Infrastructure",
-  Privacy: "Infrastructure",
-  Automation: "Infrastructure",
-  Relayer: "Infrastructure",
-  RPC: "Infrastructure",
-  API: "Infrastructure",
-  Analytics: "Infrastructure",
-
-  // Other
-  Other: "Other",
-};
+const CATEGORY_COLORS = SHARED_CATEGORY_COLORS;
+const CATEGORY_GROUP = SHARED_CATEGORY_GROUP;
 
 function getCategoryGroup(category: string): string {
   return CATEGORY_GROUP[category] || "Other";
@@ -253,17 +41,7 @@ function getCategoryGroup(category: string): string {
 
 function getCategoryColor(category: string): string {
   const group = getCategoryGroup(category);
-  const colorMap: Record<string, string> = {
-    DeFi: "#3b82f6",
-    Stablecoins: "#10b981",
-    Exchanges: "#8b5cf6",
-    Blockchains: "#f59e0b",
-    Consumer: "#ef4444",
-    DePIN: "#ec4899",
-    Infrastructure: "#6366f1",
-    Other: "#94a3b8",
-  };
-  return CATEGORY_COLORS[category] || colorMap[group] || "#94a3b8";
+  return CATEGORY_COLORS[category] || GROUP_COLORS[group] || "#94a3b8";
 }
 
 // ---------------------------------------------------------------------------

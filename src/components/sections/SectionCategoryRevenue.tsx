@@ -126,7 +126,8 @@ export default function SectionCategoryRevenue() {
   const categoryData = useMemo(() => {
     const groups = new Map<string, { value: number; count: number }>();
     for (const p of protocols) {
-      const group = getCategoryGroup(p.category || "Other");
+      const slug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+      const group = getCategoryGroup(p.category || "Other", slug);
       const value = getFieldForPeriod(p, period);
       if (value <= 0) continue;
       const existing = groups.get(group) ?? { value: 0, count: 0 };
@@ -147,14 +148,17 @@ export default function SectionCategoryRevenue() {
   // --- Project data ---
   const projectData = useMemo(() => {
     return protocols
-      .map((p) => ({
-        name: p.displayName || p.name,
-        slug: p.slug || p.name.toLowerCase().replace(/\s+/g, "-"),
-        value: getFieldForPeriod(p, period),
-        color:
-          GROUP_COLORS[getCategoryGroup(p.category || "Other")] || "#94a3b8",
-        category: getCategoryGroup(p.category || "Other"),
-      }))
+      .map((p) => {
+        const slug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+        const group = getCategoryGroup(p.category || "Other", slug);
+        return {
+          name: p.displayName || p.name,
+          slug,
+          value: getFieldForPeriod(p, period),
+          color: GROUP_COLORS[group] || "#94a3b8",
+          category: group,
+        };
+      })
       .filter((p) => p.value > 0)
       .sort((a, b) => b.value - a.value)
       .slice(0, topN);
