@@ -138,6 +138,7 @@ interface EnrichedProtocol {
   name: string;
   displayName: string;
   sector: string;
+  subcategory: string;
   sectorLabel: string;
   color: string;
   fees24h: number;
@@ -174,7 +175,7 @@ function ScatterTooltipContent({
   return (
     <div style={{ backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12, fontSize: 12, maxWidth: 260, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
       <p style={{ fontWeight: 700, color: "#111111", marginBottom: 4, fontFamily: "Georgia, serif" }}>{d.displayName}</p>
-      <p style={{ fontSize: 11, color: "#999999", marginBottom: 6 }}>{d.sectorLabel}</p>
+      <p style={{ fontSize: 11, color: "#999999", marginBottom: 6 }}>{d.subcategory} ({d.sectorLabel})</p>
       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
           <span style={{ color: "#666" }}>{xDef?.label}:</span>
@@ -207,10 +208,12 @@ export default function SectionScatterAnalysis() {
   const ctx = useDataContext();
   const hasLiveFees = !!(ctx.fees?.protocols && ctx.fees.protocols.length > 0);
 
-  const [selectedSectors, setSelectedSectors] = useState<Set<string>>(new Set(["defi"]));
+  const [selectedSectors, setSelectedSectors] = useState<Set<string>>(new Set(ALL_SECTORS));
   const [xMetric, setXMetric] = useState<MetricKey>("revenueAnn");
   const [yMetric, setYMetric] = useState<MetricKey>("ps");
   const [expandedSectors, setExpandedSectors] = useState<Set<string>>(new Set());
+  const [disabledSubcats, setDisabledSubcats] = useState<Set<string>>(new Set());
+  const [expandedSubcatSector, setExpandedSubcatSector] = useState<string | null>(null);
 
   // Build enriched protocol list
   const allProtocols = useMemo(() => {
@@ -257,6 +260,7 @@ export default function SectionScatterAnalysis() {
         name: p.name,
         displayName: p.displayName || p.name,
         sector,
+        subcategory: p.category || "Other",
         sectorLabel: SECTOR_LABELS[sector] || sector,
         color: SECTOR_COLORS[sector] || "#94a3b8",
         fees24h: p.total24h,
@@ -275,10 +279,21 @@ export default function SectionScatterAnalysis() {
     return results;
   }, [hasLiveFees, ctx.fees, ctx.coinGecko, ctx.tvl]);
 
-  // Filter by selected sectors
+  // Build subcategory map for subcategory toggles
+  const subcatsBySector = useMemo(() => {
+    const map = new Map<string, Map<string, number>>();
+    for (const p of allProtocols) {
+      if (!map.has(p.sector)) map.set(p.sector, new Map());
+      const sub = map.get(p.sector)!;
+      sub.set(p.subcategory, (sub.get(p.subcategory) ?? 0) + 1);
+    }
+    return map;
+  }, [allProtocols]);
+
+  // Filter by selected sectors + subcategories
   const filteredProtocols = useMemo(
-    () => allProtocols.filter((p) => selectedSectors.has(p.sector)),
-    [allProtocols, selectedSectors]
+    () => allProtocols.filter((p) => selectedSectors.has(p.sector) && !disabledSubcats.has(p.subcategory)),
+    [allProtocols, selectedSectors, disabledSubcats]
   );
 
   // Scatter plot data: filter to protocols that have both X and Y metrics
@@ -392,6 +407,41 @@ export default function SectionScatterAnalysis() {
             >
               None
             </button>
+          </div>
+
+          {/* Subcategory toggles */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 8 }}>
+            {Array.from(selectedSectors).map((sector) => {
+              const subcats = subcatsBySector.get(sector);
+              if (!subcats || subcats.size <= 1) return null;
+              return Array.from(subcats.entries())
+                .sort((a, b) => b[1] - a[1])
+                .map(([subcat, count]) => {
+                  const isActive = !disabledSubcats.has(subcat);
+                  return (
+                    <button
+                      key={subcat}
+                      onClick={() => {
+                        setDisabledSubcats((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(subcat)) next.delete(subcat); else next.add(subcat);
+                          return next;
+                        });
+                      }}
+                      style={{
+                        fontSize: "10px", fontWeight: 500, padding: "2px 7px",
+                        border: "1px solid",
+                        borderColor: isActive ? (SECTOR_COLORS[sector] || "#999") : "#d4d4d4",
+                        backgroundColor: isActive ? `${SECTOR_COLORS[sector] || "#999"}18` : "#fff",
+                        color: isActive ? "#333" : "#bbb",
+                        borderRadius: 0, cursor: "pointer",
+                      }}
+                    >
+                      {subcat} ({count})
+                    </button>
+                  );
+                });
+            })}
           </div>
         </div>
 

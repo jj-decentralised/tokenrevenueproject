@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import {
   ScatterChart,
   Scatter,
@@ -15,6 +15,7 @@ import {
   Bar,
   Cell,
   Treemap,
+  ReferenceLine,
 } from "recharts";
 import { useDataContext } from "@/lib/DataContext";
 import {
@@ -29,11 +30,11 @@ import {
   formatRatio,
   logTickFormatter,
   tooltipStyle,
-  categoryColorMap,
   getHeatmapColor,
   getHeatmapTextColor,
 } from "@/lib/chartUtils";
-import { getCategoryGroup, getCategoryColor, GROUP_COLORS } from "@/lib/categories";
+import { getCategoryGroup, getCategoryColor, GROUP_COLORS, GROUP_ORDER } from "@/lib/categories";
+import { findProtocolMapping } from "@/lib/protocolTokenMap";
 
 // ---------------------------------------------------------------------------
 // Loading skeleton
@@ -51,22 +52,125 @@ function ChartSkeleton({ height = "h-[400px]" }: { height?: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Category Legend
+// Statistics helpers
 // ---------------------------------------------------------------------------
 
-function CategoryLegend() {
-  const items = Object.entries(categoryColorMap);
+function pearsonR(data: { x: number; y: number }[]): number {
+  const n = data.length;
+  if (n < 3) return 0;
+  const sumX = data.reduce((s, d) => s + d.x, 0);
+  const sumY = data.reduce((s, d) => s + d.y, 0);
+  const sumXY = data.reduce((s, d) => s + d.x * d.y, 0);
+  const sumX2 = data.reduce((s, d) => s + d.x * d.x, 0);
+  const sumY2 = data.reduce((s, d) => s + d.y * d.y, 0);
+  const num = n * sumXY - sumX * sumY;
+  const den = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+  return den === 0 ? 0 : num / den;
+}
+
+function regressionLine(data: { x: number; y: number }[]): { slope: number; intercept: number } | null {
+  const n = data.length;
+  if (n < 3) return null;
+  const sumX = data.reduce((s, d) => s + d.x, 0);
+  const sumY = data.reduce((s, d) => s + d.y, 0);
+  const sumXY = data.reduce((s, d) => s + d.x * d.y, 0);
+  const sumX2 = data.reduce((s, d) => s + d.x * d.x, 0);
+  const denom = n * sumX2 - sumX * sumX;
+  if (denom === 0) return null;
+  return { slope: (n * sumXY - sumX * sumY) / denom, intercept: (sumY - ((n * sumXY - sumX * sumY) / denom) * sumX) / n };
+}
+
+// ---------------------------------------------------------------------------
+// Category Filter Panel (shared across scatter charts)
+// ---------------------------------------------------------------------------
+
+function ScatterFilterPanel({
+  subcatsByGroup,
+  disabledGroups,
+  disabledSubcats,
+  onToggleGroup,
+  onToggleSubcat,
+  onSelectAll,
+  onSelectNone,
+  totalCount,
+  visibleCount,
+}: {
+  subcatsByGroup: Map<string, Map<string, number>>;
+  disabledGroups: Set<string>;
+  disabledSubcats: Set<string>;
+  onToggleGroup: (g: string) => void;
+  onToggleSubcat: (s: string) => void;
+  onSelectAll: () => void;
+  onSelectNone: () => void;
+  totalCount: number;
+  visibleCount: number;
+}) {
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+
   return (
-    <div className="flex flex-wrap gap-4 mt-3 text-xs" style={{ color: "#666666" }}>
-      {items.map(([label, color]) => (
-        <span key={label} className="flex items-center gap-1.5">
-          <span
-            className="w-2.5 h-2.5"
-            style={{ backgroundColor: color, borderRadius: 0 }}
-          />
-          {label}
+    <div style={{ marginBottom: 20, padding: "12px 16px", border: "1px solid #e8e8e8", backgroundColor: "#fafafa" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <p style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999", margin: 0 }}>
+          Filter Scatter Charts by Category
+        </p>
+        <span style={{ fontSize: "11px", color: "#666666" }}>
+          {visibleCount} / {totalCount} protocols
         </span>
-      ))}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+        {GROUP_ORDER.map((group) => {
+          const isActive = !disabledGroups.has(group);
+          const subcats = subcatsByGroup.get(group);
+          const count = subcats ? Array.from(subcats.values()).reduce((s, c) => s + c, 0) : 0;
+          if (count === 0) return null;
+          const isExpanded = expandedGroup === group;
+          return (
+            <button
+              key={group}
+              onClick={() => onToggleGroup(group)}
+              onDoubleClick={() => setExpandedGroup(isExpanded ? null : group)}
+              title="Click to toggle. Double-click to show subcategories."
+              style={{
+                fontSize: "11px", fontWeight: 600, letterSpacing: "0.04em",
+                padding: "5px 12px", border: "1px solid",
+                borderColor: isActive ? (GROUP_COLORS[group] || "#111") : "#d4d4d4",
+                backgroundColor: isActive ? (GROUP_COLORS[group] || "#111") : "#fff",
+                color: isActive ? "#fff" : "#666", borderRadius: 0, cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 6, opacity: isActive ? 1 : 0.5,
+              }}
+            >
+              {group} <span style={{ fontSize: "10px", opacity: 0.7 }}>({count})</span>
+              <span style={{ fontSize: "9px", opacity: 0.5 }}>{isExpanded ? "\u25B2" : "\u25BC"}</span>
+            </button>
+          );
+        })}
+        <button onClick={onSelectAll} style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", padding: "5px 10px", border: "1px solid #d4d4d4", backgroundColor: "#fff", color: "#666", borderRadius: 0, cursor: "pointer" }}>All</button>
+        <button onClick={onSelectNone} style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", padding: "5px 10px", border: "1px solid #d4d4d4", backgroundColor: "#fff", color: "#666", borderRadius: 0, cursor: "pointer" }}>None</button>
+      </div>
+      {expandedGroup && subcatsByGroup.get(expandedGroup) && (
+        <div style={{ marginTop: 4, paddingTop: 8, borderTop: "1px solid #e2e8f0" }}>
+          <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999", marginBottom: 6 }}>
+            {expandedGroup} Subcategories
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+            {Array.from(subcatsByGroup.get(expandedGroup)!.entries())
+              .sort((a, b) => b[1] - a[1])
+              .map(([subcat, count]) => {
+                const isActive = !disabledSubcats.has(subcat);
+                return (
+                  <button key={subcat} onClick={() => onToggleSubcat(subcat)} style={{
+                    fontSize: "10px", fontWeight: 500, padding: "3px 8px",
+                    border: "1px solid", borderColor: isActive ? (GROUP_COLORS[expandedGroup] || "#999") : "#d4d4d4",
+                    backgroundColor: isActive ? `${GROUP_COLORS[expandedGroup] || "#999"}20` : "#fff",
+                    color: isActive ? "#333" : "#999", borderRadius: 0, cursor: "pointer", opacity: isActive ? 1 : 0.5,
+                  }}>
+                    {subcat} ({count})
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -86,7 +190,7 @@ function ScatterTooltipFeesRevenue({ active, payload }: any) {
       <p>Fees (24h): {formatCompact(d.fees24h)}</p>
       <p>Revenue (24h): {formatCompact(d.revenue24h)}</p>
       <p>Take Rate: {d.takeRate != null ? `${(d.takeRate * 100).toFixed(1)}%` : "\u2014"}</p>
-      <p style={{ fontSize: "11px", color: "#999999", marginTop: 2 }}>{d.category}</p>
+      <p style={{ fontSize: "11px", color: "#999999", marginTop: 2 }}>{d.subcategory || d.category}</p>
     </div>
   );
 }
@@ -102,7 +206,7 @@ function ScatterTooltipRevTvl({ active, payload }: any) {
       <p>TVL: {formatCompact(d.tvl)}</p>
       <p>Revenue (Ann.): {formatCompact(d.revenueAnn)}</p>
       <p>Revenue/TVL: {d.revenueTvl != null ? `${(d.revenueTvl * 100).toFixed(2)}%` : "\u2014"}</p>
-      <p style={{ fontSize: "11px", color: "#999999", marginTop: 2 }}>{d.category}</p>
+      <p style={{ fontSize: "11px", color: "#999999", marginTop: 2 }}>{d.subcategory || d.category}</p>
     </div>
   );
 }
@@ -118,7 +222,7 @@ function ScatterTooltipTvlFees({ active, payload }: any) {
       <p>TVL: {formatCompact(d.tvl)}</p>
       <p>Fees (24h): {formatCompact(d.fees24h)}</p>
       <p>Fees/TVL: {d.feesTvl != null ? `${(d.feesTvl * 100).toFixed(4)}%` : "\u2014"}</p>
-      <p style={{ fontSize: "11px", color: "#999999", marginTop: 2 }}>{d.category}</p>
+      <p style={{ fontSize: "11px", color: "#999999", marginTop: 2 }}>{d.subcategory || d.category}</p>
     </div>
   );
 }
@@ -134,7 +238,23 @@ function ScatterTooltipRevFdv({ active, payload }: any) {
       <p>Revenue (Ann.): {formatCompact(d.revenueAnn)}</p>
       <p>FDV: {formatCompact(d.fdv)}</p>
       <p>P/S (FDV): {formatRatio(d.psFdv)}</p>
-      <p style={{ fontSize: "11px", color: "#999999", marginTop: 2 }}>{d.category}</p>
+      <p style={{ fontSize: "11px", color: "#999999", marginTop: 2 }}>{d.subcategory || d.category}</p>
+    </div>
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ScatterTooltipCorrelation({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0]?.payload;
+  if (!d) return null;
+  return (
+    <div style={tooltipStyle}>
+      <p style={{ fontWeight: 700, color: "#111111", marginBottom: 4 }}>{d.name}</p>
+      <p>Fee Change (7d): {d.feeChange7d >= 0 ? "+" : ""}{d.feeChange7d.toFixed(1)}%</p>
+      <p>Price Change (7d): {d.priceChange7d >= 0 ? "+" : ""}{d.priceChange7d.toFixed(1)}%</p>
+      <p>Revenue (Ann.): {formatCompact(d.revenueAnn)}</p>
+      <p style={{ fontSize: "11px", color: "#999999", marginTop: 2 }}>{d.subcategory || d.category}</p>
     </div>
   );
 }
@@ -212,7 +332,62 @@ function groupByCategory<T extends { category: string }>(data: T[]): Record<stri
 // ---------------------------------------------------------------------------
 
 export default function Section7Analytics() {
-  const { fees, tvl, unifiedTokens, isLoading } = useDataContext();
+  const { fees, tvl, unifiedTokens, coinGecko, isLoading } = useDataContext();
+
+  // =======================================================================
+  // Filter state for scatter charts (C, D, E, F, H)
+  // =======================================================================
+  const [disabledGroups, setDisabledGroups] = useState<Set<string>>(new Set());
+  const [disabledSubcats, setDisabledSubcats] = useState<Set<string>>(new Set());
+
+  const subcatsByGroup = useMemo(() => {
+    const map = new Map<string, Map<string, number>>();
+    if (!fees?.protocols) return map;
+    for (const p of fees.protocols) {
+      if (p.total24h <= 0) continue;
+      const raw = p.category || "Other";
+      const slug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+      const group = getCategoryGroup(raw, slug);
+      if (!map.has(group)) map.set(group, new Map());
+      const sub = map.get(group)!;
+      sub.set(raw, (sub.get(raw) ?? 0) + 1);
+    }
+    return map;
+  }, [fees]);
+
+  const isVisible = useCallback(
+    (group: string, subcat: string) => !disabledGroups.has(group) && !disabledSubcats.has(subcat),
+    [disabledGroups, disabledSubcats]
+  );
+
+  const toggleGroup = useCallback((group: string) => {
+    setDisabledGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) {
+        next.delete(group);
+        setDisabledSubcats((ps) => {
+          const ns = new Set(ps);
+          const subs = subcatsByGroup.get(group);
+          if (subs) for (const sub of subs.keys()) ns.delete(sub);
+          return ns;
+        });
+      } else {
+        next.add(group);
+      }
+      return next;
+    });
+  }, [subcatsByGroup]);
+
+  const toggleSubcat = useCallback((subcat: string) => {
+    setDisabledSubcats((prev) => {
+      const next = new Set(prev);
+      if (next.has(subcat)) next.delete(subcat); else next.add(subcat);
+      return next;
+    });
+  }, []);
+
+  const selectAll = useCallback(() => { setDisabledGroups(new Set()); setDisabledSubcats(new Set()); }, []);
+  const selectNone = useCallback(() => { setDisabledGroups(new Set(GROUP_ORDER)); setDisabledSubcats(new Set()); }, []);
 
   // =======================================================================
   // A. Revenue Momentum Treemap — ALL protocols with 7d change data
@@ -258,55 +433,63 @@ export default function Section7Analytics() {
   // =======================================================================
   // C. Fees vs Revenue Scatter — ALL protocols (DefiLlama only)
   // =======================================================================
-  const feeVsRevScatter = useMemo(() => {
+  const feeVsRevScatterAll = useMemo(() => {
     if (!fees?.protocols) return [];
-
     return fees.protocols
       .filter((p) => p.total24h > 0 && (p.revenue24h ?? 0) > 0)
-      .map((p) => ({
-        name: p.displayName || p.name,
-        fees24h: p.total24h,
-        revenue24h: p.revenue24h ?? 0,
-        takeRate: (p.revenue24h ?? 0) / p.total24h,
-        category: getCategoryGroup(p.category || "Other"),
-        color: getCategoryColor(p.category || "Other"),
-        z: 60,
-      }));
+      .map((p) => {
+        const raw = p.category || "Other";
+        const slug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+        const group = getCategoryGroup(raw, slug);
+        return {
+          name: p.displayName || p.name, fees24h: p.total24h,
+          revenue24h: p.revenue24h ?? 0, takeRate: (p.revenue24h ?? 0) / p.total24h,
+          category: group, subcategory: raw,
+          color: GROUP_COLORS[group] || "#94a3b8", z: 60,
+        };
+      });
   }, [fees]);
 
+  const feeVsRevScatter = useMemo(
+    () => feeVsRevScatterAll.filter((d) => isVisible(d.category, d.subcategory)),
+    [feeVsRevScatterAll, isVisible]
+  );
   const feeVsRevByCategory = useMemo(() => groupByCategory(feeVsRevScatter), [feeVsRevScatter]);
 
   // =======================================================================
   // D. Revenue vs TVL Scatter — expanded with allProtocolsTVL
   // =======================================================================
-  const revVsTvlScatter = useMemo(() => {
+  const revVsTvlScatterAll = useMemo(() => {
     if (!fees?.protocols || !tvl?.allProtocolsTVL) return [];
-
     const tvlByName = new Map<string, number>();
     for (const p of tvl.allProtocolsTVL) {
       tvlByName.set(p.name.toLowerCase(), p.tvl);
+      tvlByName.set(p.slug.toLowerCase(), p.tvl);
     }
-
     return fees.protocols
       .filter((p) => {
-        const tvlVal = tvlByName.get(p.name.toLowerCase());
+        const tvlVal = tvlByName.get(p.name.toLowerCase()) ?? tvlByName.get((p.slug || "").toLowerCase());
         return p.total24h > 0 && tvlVal != null && tvlVal > 0;
       })
       .map((p) => {
-        const tvlVal = tvlByName.get(p.name.toLowerCase())!;
+        const tvlVal = (tvlByName.get(p.name.toLowerCase()) ?? tvlByName.get((p.slug || "").toLowerCase()))!;
         const revenueAnn = p.total24h * 365;
+        const raw = p.category || "Other";
+        const slug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+        const group = getCategoryGroup(raw, slug);
         return {
-          name: p.displayName || p.name,
-          tvl: tvlVal,
-          revenueAnn,
+          name: p.displayName || p.name, tvl: tvlVal, revenueAnn,
           revenueTvl: revenueAnn / tvlVal,
-          category: getCategoryGroup(p.category || "Other"),
-          color: getCategoryColor(p.category || "Other"),
-          z: 60,
+          category: group, subcategory: raw,
+          color: GROUP_COLORS[group] || "#94a3b8", z: 60,
         };
       });
   }, [fees, tvl]);
 
+  const revVsTvlScatter = useMemo(
+    () => revVsTvlScatterAll.filter((d) => isVisible(d.category, d.subcategory)),
+    [revVsTvlScatterAll, isVisible]
+  );
   const revVsTvlByCategory = useMemo(() => groupByCategory(revVsTvlScatter), [revVsTvlScatter]);
 
   const avgRevenueTvl = useMemo(() => {
@@ -319,52 +502,55 @@ export default function Section7Analytics() {
   // =======================================================================
   // E. TVL vs Fees Scatter
   // =======================================================================
-  const tvlVsFeesScatter = useMemo(() => {
+  const tvlVsFeesScatterAll = useMemo(() => {
     if (!fees?.protocols || !tvl?.allProtocolsTVL) return [];
-
     const tvlByName = new Map<string, number>();
     for (const p of tvl.allProtocolsTVL) {
       tvlByName.set(p.name.toLowerCase(), p.tvl);
+      tvlByName.set(p.slug.toLowerCase(), p.tvl);
     }
-
     return fees.protocols
       .filter((p) => {
-        const tvlVal = tvlByName.get(p.name.toLowerCase());
+        const tvlVal = tvlByName.get(p.name.toLowerCase()) ?? tvlByName.get((p.slug || "").toLowerCase());
         return p.total24h > 0 && tvlVal != null && tvlVal > 0;
       })
       .map((p) => {
-        const tvlVal = tvlByName.get(p.name.toLowerCase())!;
+        const tvlVal = (tvlByName.get(p.name.toLowerCase()) ?? tvlByName.get((p.slug || "").toLowerCase()))!;
+        const raw = p.category || "Other";
+        const slug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+        const group = getCategoryGroup(raw, slug);
         return {
-          name: p.displayName || p.name,
-          tvl: tvlVal,
-          fees24h: p.total24h,
+          name: p.displayName || p.name, tvl: tvlVal, fees24h: p.total24h,
           feesTvl: p.total24h / tvlVal,
-          category: getCategoryGroup(p.category || "Other"),
-          color: getCategoryColor(p.category || "Other"),
-          z: 60,
+          category: group, subcategory: raw,
+          color: GROUP_COLORS[group] || "#94a3b8", z: 60,
         };
       });
   }, [fees, tvl]);
 
+  const tvlVsFeesScatter = useMemo(
+    () => tvlVsFeesScatterAll.filter((d) => isVisible(d.category, d.subcategory)),
+    [tvlVsFeesScatterAll, isVisible]
+  );
   const tvlVsFeesByCategory = useMemo(() => groupByCategory(tvlVsFeesScatter), [tvlVsFeesScatter]);
 
   // =======================================================================
   // F. Revenue vs FDV Scatter — uses CoinGecko-matched data
   // =======================================================================
-  const revVsFdvScatter = useMemo(() => {
+  const revVsFdvScatterAll = useMemo(() => {
     return unifiedTokens
       .filter((p) => p.fdv != null && p.fdv > 0 && p.revenueAnn != null && p.revenueAnn > 0)
       .map((p) => ({
-        name: p.name,
-        revenueAnn: p.revenueAnn!,
-        fdv: p.fdv!,
-        psFdv: p.psFdv,
-        category: p.categoryGroup,
-        color: getCategoryColor(p.category),
-        z: 60,
+        name: p.name, revenueAnn: p.revenueAnn!, fdv: p.fdv!, psFdv: p.psFdv,
+        category: p.categoryGroup, subcategory: p.subcategory || p.category,
+        color: GROUP_COLORS[p.categoryGroup] || "#94a3b8", z: 60,
       }));
   }, [unifiedTokens]);
 
+  const revVsFdvScatter = useMemo(
+    () => revVsFdvScatterAll.filter((d) => isVisible(d.category, d.subcategory)),
+    [revVsFdvScatterAll, isVisible]
+  );
   const revVsFdvByCategory = useMemo(() => groupByCategory(revVsFdvScatter), [revVsFdvScatter]);
 
   // P/S = 20x reference line data
@@ -403,6 +589,61 @@ export default function Section7Analytics() {
   }, [unifiedTokens]);
 
   const totalPsProtocols = psDistribution.reduce((s, b) => s + b.count, 0);
+
+  // =======================================================================
+  // H. Revenue-Price Correlation
+  // =======================================================================
+  const correlationDataAll = useMemo(() => {
+    if (!fees?.protocols || !coinGecko?.tokens) return [];
+    const tokenById = new Map<string, { priceChange7d: number }>();
+    const tokenByName = new Map<string, { priceChange7d: number }>();
+    for (const t of coinGecko.tokens) {
+      tokenById.set(t.id.toLowerCase(), { priceChange7d: t.priceChange7d });
+      tokenByName.set(t.name.toLowerCase(), { priceChange7d: t.priceChange7d });
+    }
+    const results: Array<{
+      name: string; feeChange7d: number; priceChange7d: number; revenueAnn: number;
+      category: string; subcategory: string; color: string; z: number;
+    }> = [];
+    for (const p of fees.protocols) {
+      if (p.total24h <= 0 || p.change_7d == null) continue;
+      const mapping = findProtocolMapping(p.name);
+      const tm = mapping?.coinGeckoId
+        ? tokenById.get(mapping.coinGeckoId.toLowerCase())
+        : (tokenByName.get(p.name.toLowerCase()) ?? tokenById.get(p.name.toLowerCase()));
+      if (!tm || tm.priceChange7d === 0) continue;
+      const raw = p.category || "Other";
+      const slug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+      const group = getCategoryGroup(raw, slug);
+      results.push({
+        name: p.displayName || p.name, feeChange7d: p.change_7d,
+        priceChange7d: tm.priceChange7d, revenueAnn: p.total24h * 365,
+        category: group, subcategory: raw,
+        color: GROUP_COLORS[group] || "#94a3b8",
+        z: Math.max(30, Math.min(300, p.total24h / 100)),
+      });
+    }
+    return results;
+  }, [fees, coinGecko]);
+
+  const filteredCorrelation = useMemo(() => {
+    const filtered = correlationDataAll.filter((d) => isVisible(d.category, d.subcategory));
+    const pairs = filtered.map((d) => ({ x: d.feeChange7d, y: d.priceChange7d }));
+    const r = pearsonR(pairs);
+    const reg = regressionLine(pairs);
+    return { data: filtered, r, r2: r * r, regression: reg, byCategory: groupByCategory(filtered) };
+  }, [correlationDataAll, isVisible]);
+
+  const corrRegressionLine = useMemo(() => {
+    if (!filteredCorrelation.regression || filteredCorrelation.data.length < 5) return [];
+    const { slope, intercept } = filteredCorrelation.regression;
+    const xs = filteredCorrelation.data.map((d) => d.feeChange7d);
+    const minX = Math.min(...xs); const maxX = Math.max(...xs);
+    return [
+      { feeChange7d: minX, priceChange7d: slope * minX + intercept, z: 0, name: "Regression" },
+      { feeChange7d: maxX, priceChange7d: slope * maxX + intercept, z: 0, name: "Regression" },
+    ];
+  }, [filteredCorrelation]);
 
   // =======================================================================
   // Render
@@ -546,6 +787,21 @@ export default function Section7Analytics() {
       </Card>
 
       {/* ================================================================ */}
+      {/* Scatter Filter Panel (shared across C, D, E, F, H)              */}
+      {/* ================================================================ */}
+      <ScatterFilterPanel
+        subcatsByGroup={subcatsByGroup}
+        disabledGroups={disabledGroups}
+        disabledSubcats={disabledSubcats}
+        onToggleGroup={toggleGroup}
+        onToggleSubcat={toggleSubcat}
+        onSelectAll={selectAll}
+        onSelectNone={selectNone}
+        totalCount={feeVsRevScatterAll.length}
+        visibleCount={feeVsRevScatter.length}
+      />
+
+      {/* ================================================================ */}
       {/* C. Fees vs Revenue Scatter (Take Rate)                           */}
       {/* ================================================================ */}
       <Card>
@@ -565,7 +821,7 @@ export default function Section7Analytics() {
             The diagonal line marks 100% take rate. Points below it keep less than total fees as revenue.
           </p>
           <p style={{ fontSize: "12px", color: "#999999", marginBottom: 16 }}>
-            {feeVsRevScatter.length} protocols shown
+            {feeVsRevScatter.length} of {feeVsRevScatterAll.length} protocols shown
           </p>
 
           {isLoading ? (
@@ -639,7 +895,7 @@ export default function Section7Analytics() {
                       key={cat}
                       name={cat}
                       data={data}
-                      fill={categoryColorMap[cat] || "#94a3b8"}
+                      fill={GROUP_COLORS[cat] || "#94a3b8"}
                       fillOpacity={0.8}
                     />
                   ))}
@@ -677,7 +933,7 @@ export default function Section7Analytics() {
             of TVL than the industry average ({(avgRevenueTvl * 100).toFixed(1)}%).
           </p>
           <p style={{ fontSize: "12px", color: "#999999", marginBottom: 16 }}>
-            {revVsTvlScatter.length} protocols shown
+            {revVsTvlScatter.length} of {revVsTvlScatterAll.length} protocols shown
           </p>
 
           {isLoading ? (
@@ -752,7 +1008,7 @@ export default function Section7Analytics() {
                       key={cat}
                       name={cat}
                       data={data}
-                      fill={categoryColorMap[cat] || "#94a3b8"}
+                      fill={GROUP_COLORS[cat] || "#94a3b8"}
                       fillOpacity={0.8}
                     />
                   ))}
@@ -789,7 +1045,7 @@ export default function Section7Analytics() {
             How efficiently protocols generate fees from locked capital. X = TVL, Y = daily fees (both log scale).
           </p>
           <p style={{ fontSize: "12px", color: "#999999", marginBottom: 16 }}>
-            {tvlVsFeesScatter.length} protocols shown
+            {tvlVsFeesScatter.length} of {tvlVsFeesScatterAll.length} protocols shown
           </p>
 
           {isLoading ? (
@@ -849,7 +1105,7 @@ export default function Section7Analytics() {
                       key={cat}
                       name={cat}
                       data={data}
-                      fill={categoryColorMap[cat] || "#94a3b8"}
+                      fill={GROUP_COLORS[cat] || "#94a3b8"}
                       fillOpacity={0.8}
                     />
                   ))}
@@ -887,7 +1143,7 @@ export default function Section7Analytics() {
             Dots below the line trade at &lt;20x revenue on FDV basis.
           </p>
           <p style={{ fontSize: "12px", color: "#999999", marginBottom: 16 }}>
-            {revVsFdvScatter.length} protocols shown (requires CoinGecko token match)
+            {revVsFdvScatter.length} of {revVsFdvScatterAll.length} protocols shown
           </p>
 
           {isLoading ? (
@@ -961,7 +1217,7 @@ export default function Section7Analytics() {
                       key={cat}
                       name={cat}
                       data={data}
-                      fill={categoryColorMap[cat] || "#94a3b8"}
+                      fill={GROUP_COLORS[cat] || "#94a3b8"}
                       fillOpacity={0.8}
                     />
                   ))}
@@ -1040,6 +1296,100 @@ export default function Section7Analytics() {
                     ))}
                   </Bar>
                 </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </ChartExport>
+        <DataSource sources={["DefiLlama (live)", "CoinGecko (live)"]} />
+      </Card>
+
+      {/* ================================================================ */}
+      {/* H. Revenue-Price Correlation                                      */}
+      {/* ================================================================ */}
+      <Card>
+        <ChartExport
+          data={filteredCorrelation.data.map((d) => ({
+            protocol: d.name, fee_change_7d: d.feeChange7d,
+            price_change_7d: d.priceChange7d, revenue_ann: d.revenueAnn, category: d.category,
+          }))}
+          filename="revenue-price-correlation"
+          title="Revenue Growth vs Price Movement (7-Day)"
+        >
+          <p style={{ fontSize: "14px", color: "#666666", lineHeight: "1.5", marginBottom: 8 }}>
+            Does rising revenue translate to price appreciation? Each dot plots a protocol&apos;s 7-day fee
+            change (X) vs 7-day price change (Y). The regression line shows the aggregate trend.
+          </p>
+
+          <div style={{ display: "flex", gap: 24, marginBottom: 16, padding: "12px 16px", border: "1px solid #e8e8e8", backgroundColor: "#fafafa", flexWrap: "wrap" }}>
+            <div>
+              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999", marginBottom: 2 }}>Protocols Matched</p>
+              <p style={{ fontSize: "20px", fontWeight: 700, color: "#111", fontVariantNumeric: "tabular-nums" }}>{filteredCorrelation.data.length}</p>
+            </div>
+            <div>
+              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999", marginBottom: 2 }}>Pearson R</p>
+              <p style={{ fontSize: "20px", fontWeight: 700, color: "#111", fontVariantNumeric: "tabular-nums" }}>{filteredCorrelation.r.toFixed(3)}</p>
+            </div>
+            <div>
+              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999", marginBottom: 2 }}>R-squared</p>
+              <p style={{ fontSize: "20px", fontWeight: 700, color: "#111", fontVariantNumeric: "tabular-nums" }}>{filteredCorrelation.r2.toFixed(3)}</p>
+            </div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999", marginBottom: 2 }}>Interpretation</p>
+              <p style={{ fontSize: "13px", color: "#333", lineHeight: 1.4 }}>
+                {filteredCorrelation.r2 < 0.05
+                  ? "Very weak correlation \u2014 revenue changes explain less than 5% of price movement."
+                  : filteredCorrelation.r2 < 0.15
+                    ? `Weak ${filteredCorrelation.r > 0 ? "positive" : "negative"} correlation \u2014 some signal, but noisy.`
+                    : filteredCorrelation.r2 < 0.3
+                      ? `Moderate ${filteredCorrelation.r > 0 ? "positive" : "negative"} correlation \u2014 revenue growth matters.`
+                      : `Strong ${filteredCorrelation.r > 0 ? "positive" : "negative"} correlation \u2014 revenue is a key price driver.`}
+              </p>
+            </div>
+          </div>
+
+          {isLoading ? (
+            <ChartSkeleton />
+          ) : filteredCorrelation.data.length < 5 ? (
+            <div className="h-[400px] flex items-center justify-center text-sm" style={{ color: "#999" }}>
+              Insufficient matched protocols. Try selecting more categories.
+            </div>
+          ) : (
+            <div className="h-[480px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e8e8e8" />
+                  <XAxis
+                    type="number" dataKey="feeChange7d" name="Fee Change 7d (%)"
+                    domain={["auto", "auto"]}
+                    tickFormatter={(v: number) => `${v > 0 ? "+" : ""}${v.toFixed(0)}%`}
+                    tick={{ fontSize: 11, fill: "#999" }} tickLine={false}
+                    axisLine={{ stroke: "#d4d4d4" }}
+                    label={{ value: "Fee Change (7d %)", position: "insideBottom", offset: -10, style: { fontSize: 11, fill: "#999", textAnchor: "middle" } }}
+                  />
+                  <YAxis
+                    type="number" dataKey="priceChange7d" name="Price Change 7d (%)"
+                    domain={["auto", "auto"]}
+                    tickFormatter={(v: number) => `${v > 0 ? "+" : ""}${v.toFixed(0)}%`}
+                    tick={{ fontSize: 11, fill: "#999" }} tickLine={false} axisLine={false} width={70}
+                    label={{ value: "Price Change (7d %)", angle: -90, position: "insideLeft", offset: -5, style: { fontSize: 11, fill: "#999", textAnchor: "middle" } }}
+                  />
+                  <ZAxis type="number" dataKey="z" range={[30, 200]} />
+                  <Tooltip content={<ScatterTooltipCorrelation />} cursor={{ strokeDasharray: "3 3", stroke: "#d4d4d4" }} />
+                  <ReferenceLine x={0} stroke="#d4d4d4" strokeDasharray="3 3" />
+                  <ReferenceLine y={0} stroke="#d4d4d4" strokeDasharray="3 3" />
+                  {corrRegressionLine.length > 0 && (
+                    <Scatter
+                      name={`Regression (R\u00B2=${filteredCorrelation.r2.toFixed(2)})`}
+                      data={corrRegressionLine} fill="none"
+                      line={{ stroke: "#ef4444", strokeWidth: 2, strokeDasharray: "8 4" }}
+                      shape={() => <></>} legendType="line"
+                    />
+                  )}
+                  {Object.entries(filteredCorrelation.byCategory).map(([cat, data]) => (
+                    <Scatter key={cat} name={cat} data={data} fill={GROUP_COLORS[cat] || "#94a3b8"} fillOpacity={0.7} />
+                  ))}
+                  <Legend verticalAlign="top" height={36} iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+                </ScatterChart>
               </ResponsiveContainer>
             </div>
           )}
