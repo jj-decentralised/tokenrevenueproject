@@ -6,6 +6,8 @@ import Section2Sentiment from "@/components/sections/Section2Sentiment";
 import Section3Quality from "@/components/sections/Section3Quality";
 import Section4Moats from "@/components/sections/Section4Moats";
 import Section5NextLeaders from "@/components/sections/Section5NextLeaders";
+import { useRevenueData } from "@/lib/useData";
+import { DataStatus } from "@/components/ui/DataStatus";
 
 const NAV_ITEMS = [
   { id: "revenue", label: "Revenue & P/E" },
@@ -18,6 +20,18 @@ const NAV_ITEMS = [
 type SectionId = (typeof NAV_ITEMS)[number]["id"];
 
 export default function HomePage() {
+  // Live data fetching layer — sections still import static data directly,
+  // but `liveData` is available for future integration when individual
+  // sections are wired up to accept it as a prop.
+  const { data: liveData, isLive, isLoading, lastUpdated, errors } = useRevenueData();
+
+  // Log API errors in dev for debugging (not shown to user)
+  useEffect(() => {
+    if (errors.length > 0 && process.env.NODE_ENV === "development") {
+      console.warn("[useRevenueData] API errors:", errors);
+    }
+  }, [errors]);
+
   const [activeSection, setActiveSection] = useState<SectionId>("revenue");
   const sectionRefs = useRef<Record<SectionId, HTMLDivElement | null>>({
     revenue: null,
@@ -97,10 +111,11 @@ export default function HomePage() {
     <div className="min-h-screen">
       {/* ===== HEADER ===== */}
       <header className="pt-16 pb-12">
-        <div className="max-w-3xl">
-          <p className="text-sm font-medium text-slate-400 uppercase tracking-widest mb-4">
-            February 2026
-          </p>
+        <div className="flex items-start justify-between">
+          <div className="max-w-3xl">
+            <p className="text-sm font-medium text-slate-400 uppercase tracking-widest mb-4">
+              February 2026
+            </p>
           <h1 className="text-5xl sm:text-6xl font-extrabold tracking-tight text-slate-900 leading-[1.1]">
             Crypto Revenue{" "}
             <span className="bg-gradient-to-r from-blue-600 to-violet-600 bg-clip-text text-transparent">
@@ -116,6 +131,11 @@ export default function HomePage() {
             <p className="text-sm text-slate-400">
               By <span className="font-medium text-slate-500">Saurabh &amp; Team</span>
             </p>
+          </div>
+          </div>
+          {/* Data status indicator — top-right of header */}
+          <div className="flex-shrink-0 pt-1">
+            <DataStatus isLive={isLive} isLoading={isLoading} lastUpdated={lastUpdated} />
           </div>
         </div>
       </header>
