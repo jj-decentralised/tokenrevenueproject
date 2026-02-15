@@ -8,11 +8,13 @@ import Section4Moats from "@/components/sections/Section4Moats";
 import Section5NextLeaders from "@/components/sections/Section5NextLeaders";
 import Section6Protocols from "@/components/sections/Section6Protocols";
 import Section7Analytics from "@/components/sections/Section7Analytics";
+import SectionCategoryRevenue from "@/components/sections/SectionCategoryRevenue";
 import { useDataContext } from "@/lib/DataContext";
 import { DataStatus } from "@/components/ui/DataStatus";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 
 const NAV_ITEMS = [
+  { id: "category-revenue", label: "Revenue by Category" },
   { id: "revenue", label: "Revenue & P/E" },
   { id: "sentiment", label: "Sentiment" },
   { id: "quality", label: "Revenue Quality" },
@@ -36,6 +38,7 @@ export default function HomePage() {
 
   const [activeSection, setActiveSection] = useState<SectionId>("revenue");
   const sectionRefs = useRef<Record<SectionId, HTMLDivElement | null>>({
+    "category-revenue": null,
     revenue: null,
     sentiment: null,
     quality: null,
@@ -172,6 +175,16 @@ export default function HomePage() {
 
       {/* ===== SECTIONS ===== */}
       <main className="mt-12 space-y-24 pb-24">
+        <div
+          id="category-revenue"
+          data-section-id="category-revenue"
+          ref={setSectionRef("category-revenue")}
+        >
+          <ErrorBoundary>
+            <SectionCategoryRevenue />
+          </ErrorBoundary>
+        </div>
+
         <div
           id="revenue"
           data-section-id="revenue"
