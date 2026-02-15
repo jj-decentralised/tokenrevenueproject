@@ -305,17 +305,17 @@ export function buildUnifiedTokenList(
     const protocolRevenue = p.revenue24h;   // null if not available
     const holdersRev = p.holdersRevenue24h; // null if not available
 
-    // ----- Market Cap: CoinGecko → DefiLlama TVL endpoint fallback -----
+    // ----- Market Cap & FDV: CoinGecko → DefiLlama fallback -----
     const marketCap = tokenMatch?.marketCap ?? tvlMatch?.mcap ?? null;
-    const fdv = tokenMatch?.fullyDilutedValuation ?? null;
+    const fdv = tokenMatch?.fullyDilutedValuation ?? tvlMatch?.fdv ?? null;
 
-    // ----- P/S: use protocol revenue when available, else total fees -----
-    // Numerator: Market Cap → FDV fallback (maximizes coverage)
+    // ----- P/S: use FDV as primary (user preference), fall back to mcap -----
     const protoRevAnn = protocolRevenue != null && protocolRevenue > 0
       ? protocolRevenue * 365
       : null;
     const psBase = protoRevAnn ?? feesAnnualized;
-    const psNumerator = marketCap ?? fdv; // fall back to FDV when mcap unavailable
+    // P/S uses FDV (preferred) → Market Cap fallback
+    const psNumerator = fdv ?? marketCap;
     const psRatio =
       psNumerator != null && psBase > 0 ? psNumerator / psBase : null;
     const psFdv = fdv != null && psBase > 0 ? fdv / psBase : null;

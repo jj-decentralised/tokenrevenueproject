@@ -630,8 +630,9 @@ export default function ProtocolProfilePage() {
     return null;
   }, [defiLlamaData]);
 
-  const marketCap = coinGeckoToken?.marketCap ?? null;
-  const fdv = coinGeckoToken?.fullyDilutedValuation ?? null;
+  // Market cap & FDV: CoinGecko → DefiLlama TVL endpoint fallback
+  const marketCap = coinGeckoToken?.marketCap ?? (tvlData && 'mcap' in tvlData ? (tvlData as any).mcap : null) ?? null;
+  const fdv = coinGeckoToken?.fullyDilutedValuation ?? (tvlData && 'fdv' in tvlData ? (tvlData as any).fdv : null) ?? null;
 
   const psRatio = useMemo(() => {
     if (fdv && annualizedRevenue && annualizedRevenue > 0) {

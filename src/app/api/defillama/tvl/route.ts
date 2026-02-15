@@ -57,6 +57,7 @@ interface ProtocolTVLLite {
   chains: string[];
   currentTVL: number;
   mcap: number | null;
+  fdv: number | null;
 }
 
 interface TVLResponse {
@@ -190,6 +191,7 @@ export async function GET(): Promise<NextResponse> {
       chains: Array.isArray(p.chains) ? p.chains.map(String) : [],
       currentTVL: safeNum(p.tvl) ?? 0,
       mcap: safeNum(p.mcap),
+      fdv: safeNum(p.fdv),
     }));
 
     const topProtocols: ProtocolTVLSummary[] = top20.map((p) => {

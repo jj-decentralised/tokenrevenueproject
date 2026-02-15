@@ -738,12 +738,12 @@ export default function Section6Protocols() {
       // Margin: enriched DL margin → TT earnings margin
       const margin = p.margin ?? earningsMatch?.margin ?? null;
 
-      // Market cap: CoinGecko → DefiLlama TVL endpoint mcap fallback
+      // Market cap & FDV: CoinGecko → DefiLlama TVL endpoint fallback
       const marketCap = tokenMatch?.marketCap ?? tvlMatch?.mcap ?? null;
       const tvlVal = tvlMatch?.tvl ?? null;
-      const fdv = tokenMatch?.fullyDilutedValuation ?? null;
-      // P/S: prefer Market Cap, fall back to FDV for broader coverage
-      const psNumerator = marketCap ?? fdv;
+      const fdv = tokenMatch?.fullyDilutedValuation ?? tvlMatch?.fdv ?? null;
+      // P/S: prefer FDV → Market Cap fallback for broader coverage
+      const psNumerator = fdv ?? marketCap;
       const psRatio =
         psNumerator != null && revenueAnn > 0 ? psNumerator / revenueAnn : null;
       const revenueTvl =

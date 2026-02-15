@@ -97,6 +97,7 @@ export interface LiveTVLData {
     category: string;
     chains: string[];
     mcap: number | null;
+    fdv: number | null;
   }[];
 }
 
@@ -444,6 +445,7 @@ async function fetchTVL(): Promise<LiveTVLData | null> {
           category: String(p.category ?? ""),
           chains: Array.isArray(p.chains) ? p.chains.map(String) : [],
           mcap: p.mcap != null ? Number(p.mcap) : null,
+          fdv: p.fdv != null ? Number(p.fdv) : null,
         }))
       : [];
 
