@@ -119,6 +119,11 @@ const CATEGORY_TO_SECTOR: Record<string, string> = {
 
   // Other
   Other: "other",
+
+  // Group names (from getCategoryGroup output — only ones not already above)
+  DeFi: "defi",
+  Blockchains: "blockchains",
+  Consumer: "consumer",
 };
 
 /** Map a DefiLlama category string to our sector key. */
@@ -449,7 +454,9 @@ function SectorDrillDown({
     const sectorMap = new Map<string, SectorProtocol[]>();
     for (const p of protocols) {
       if (p.total24h <= 0) continue;
-      const sector = mapCategoryToSector(p.category || "Other");
+      const pSlug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+      const sectorGroup = getCategoryGroup(p.category || "Other", pSlug);
+      const sector = mapCategoryToSector(sectorGroup);
       const mapping = findProtocolMapping(p.name);
       const tokenMatch = mapping?.coinGeckoId
         ? tokenById.get(mapping.coinGeckoId.toLowerCase())
@@ -849,33 +856,21 @@ export default function Section3Quality() {
 
   // ----- Pie chart data: live DefiLlama categories or static fallback -----
   const pieData = useMemo(() => {
-    if (liveCategoryGroups) {
-      // Build pie slices from live DefiLlama category data.
-      // Group into our sector buckets for consistency.
+    if (hasLiveFees && ctx.fees) {
+      // Group protocols by resolved sector (using slug overrides)
+      const sectorLabelMap: Record<string, string> = {
+        DeFi: "DeFi/Finance", Exchanges: "Exchanges", Stablecoins: "Stablecoins",
+        Blockchains: "Blockchains", Consumer: "Consumer", DePIN: "DePIN",
+        Infrastructure: "Infrastructure", Other: "Other",
+      };
       const sectorTotals: Record<string, number> = {};
-      for (const [cat, data] of Object.entries(liveCategoryGroups)) {
-        const sector = mapCategoryToSector(cat);
-        const sectorLabel =
-          sector === "defi"
-            ? "DeFi/Finance"
-            : sector === "exchanges"
-            ? "Exchanges"
-            : sector === "stablecoins"
-            ? "Stablecoins"
-            : sector === "blockchains"
-            ? "Blockchains"
-            : sector === "consumer"
-            ? "Consumer"
-            : sector === "wallets"
-            ? "Wallets"
-            : sector === "depin"
-            ? "DePIN"
-            : sector === "infrastructure"
-            ? "Infrastructure"
-            : sector === "payments"
-            ? "Payments"
-            : "Other";
-        sectorTotals[sectorLabel] = (sectorTotals[sectorLabel] || 0) + data.total30d;
+      for (const p of ctx.fees.protocols) {
+        const val30d = p.total30d || 0;
+        if (val30d <= 0) continue;
+        const pSlug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+        const group = getCategoryGroup(p.category || "Other", pSlug);
+        const label = sectorLabelMap[group] || "Other";
+        sectorTotals[label] = (sectorTotals[label] || 0) + val30d;
       }
 
       const total = Object.values(sectorTotals).reduce((s, v) => s + v, 0);
@@ -899,35 +894,24 @@ export default function Section3Quality() {
       ...d,
       name: d.sector,
     }));
-  }, [liveCategoryGroups]);
+  }, [hasLiveFees, ctx.fees]);
 
   // ----- Sector detail list (for the side panel) -----
   const sectorDetailList = useMemo(() => {
-    if (liveCategoryGroups) {
+    if (hasLiveFees && ctx.fees) {
+      const sectorLabelMap: Record<string, string> = {
+        DeFi: "DeFi/Finance", Exchanges: "Exchanges", Stablecoins: "Stablecoins",
+        Blockchains: "Blockchains", Consumer: "Consumer", DePIN: "DePIN",
+        Infrastructure: "Infrastructure", Other: "Other",
+      };
       const sectorTotals: Record<string, number> = {};
-      for (const [cat, data] of Object.entries(liveCategoryGroups)) {
-        const sector = mapCategoryToSector(cat);
-        const sectorLabel =
-          sector === "defi"
-            ? "DeFi/Finance"
-            : sector === "exchanges"
-            ? "Exchanges"
-            : sector === "stablecoins"
-            ? "Stablecoins"
-            : sector === "blockchains"
-            ? "Blockchains"
-            : sector === "consumer"
-            ? "Consumer"
-            : sector === "wallets"
-            ? "Wallets"
-            : sector === "depin"
-            ? "DePIN"
-            : sector === "infrastructure"
-            ? "Infrastructure"
-            : sector === "payments"
-            ? "Payments"
-            : "Other";
-        sectorTotals[sectorLabel] = (sectorTotals[sectorLabel] || 0) + data.total30d;
+      for (const p of ctx.fees.protocols) {
+        const val30d = p.total30d || 0;
+        if (val30d <= 0) continue;
+        const pSlug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+        const group = getCategoryGroup(p.category || "Other", pSlug);
+        const label = sectorLabelMap[group] || "Other";
+        sectorTotals[label] = (sectorTotals[label] || 0) + val30d;
       }
       const total = Object.values(sectorTotals).reduce((s, v) => s + v, 0);
 
@@ -952,7 +936,7 @@ export default function Section3Quality() {
       color: d.color,
       yoyGrowth: d.yoyGrowth as number | null,
     }));
-  }, [liveCategoryGroups]);
+  }, [hasLiveFees, ctx.fees]);
 
   // Build a market cap lookup from annual revenue data
   const marketCapByYear = useMemo(() => {
@@ -1028,7 +1012,9 @@ export default function Section3Quality() {
     const map = new Map<string, Array<{ name: string; fees24h: number; fees30d: number; feesAnn: number }>>();
     for (const p of ctx.fees.protocols) {
       if (p.total24h <= 0) continue;
-      const sector = mapCategoryToSector(p.category || "Other");
+      const pSlug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+      const sectorGroup = getCategoryGroup(p.category || "Other", pSlug);
+      const sector = mapCategoryToSector(sectorGroup);
       if (!map.has(sector)) map.set(sector, []);
       map.get(sector)!.push({
         name: p.displayName || p.name,

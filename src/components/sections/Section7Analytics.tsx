@@ -397,13 +397,16 @@ export default function Section7Analytics() {
 
     const items = fees.protocols
       .filter((p) => p.total24h > 0 && p.change_7d != null)
-      .map((p) => ({
-        name: p.displayName || p.name,
-        size: p.total24h,
-        change7d: p.change_7d,
-        category: getCategoryGroup(p.category || "Other"),
-        color: getHeatmapColor(p.change_7d),
-      }));
+      .map((p) => {
+        const slug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+        return {
+          name: p.displayName || p.name,
+          size: p.total24h,
+          change7d: p.change_7d,
+          category: getCategoryGroup(p.category || "Other", slug),
+          color: getHeatmapColor(p.change_7d),
+        };
+      });
 
     return items;
   }, [fees]);
@@ -417,7 +420,8 @@ export default function Section7Analytics() {
     const groups: Record<string, number> = {};
     for (const p of fees.protocols) {
       if (p.total24h <= 0) continue;
-      const g = getCategoryGroup(p.category || "Other");
+      const slug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+      const g = getCategoryGroup(p.category || "Other", slug);
       groups[g] = (groups[g] || 0) + p.total24h;
     }
 

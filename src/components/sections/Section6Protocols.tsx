@@ -23,9 +23,9 @@ import {
   DataSource,
 } from "@/components/ui/Card";
 import {
-  CATEGORY_GROUP as SHARED_CATEGORY_GROUP,
   CATEGORY_COLORS as SHARED_CATEGORY_COLORS,
   GROUP_COLORS,
+  getCategoryGroup,
 } from "@/lib/categories";
 
 // ---------------------------------------------------------------------------
@@ -33,14 +33,9 @@ import {
 // ---------------------------------------------------------------------------
 
 const CATEGORY_COLORS = SHARED_CATEGORY_COLORS;
-const CATEGORY_GROUP = SHARED_CATEGORY_GROUP;
 
-function getCategoryGroup(category: string): string {
-  return CATEGORY_GROUP[category] || "Other";
-}
-
-function getCategoryColor(category: string): string {
-  const group = getCategoryGroup(category);
+function getCategoryColor(category: string, slug?: string): string {
+  const group = getCategoryGroup(category, slug);
   return CATEGORY_COLORS[category] || GROUP_COLORS[group] || "#94a3b8";
 }
 
@@ -535,8 +530,8 @@ export default function Section6Protocols() {
         name: p.name,
         displayName: p.displayName || p.name,
         category: p.category || "Other",
-        categoryGroup: getCategoryGroup(p.category || "Other"),
-        slug: toSlug(p.name),
+        slug: p.slug || toSlug(p.name),
+        categoryGroup: getCategoryGroup(p.category || "Other", p.slug || toSlug(p.name)),
         logo: p.logo ?? null,
         fees24h,
         fees30d,
@@ -612,7 +607,7 @@ export default function Section6Protocols() {
         psRatio: p.psRatio,
         tvl: p.tvl,
         category: p.categoryGroup,
-        color: getCategoryColor(p.category),
+        color: getCategoryColor(p.category, p.slug),
         z: p.tvl != null ? Math.max(p.tvl / 1e8, 40) : 40,
       }));
   }, [mergedProtocols]);
@@ -640,7 +635,7 @@ export default function Section6Protocols() {
         revenueAnn: p.revenueAnn,
         revenueTvl: p.revenueTvl,
         category: p.categoryGroup,
-        color: getCategoryColor(p.category),
+        color: getCategoryColor(p.category, p.slug),
         z: 60,
       }));
   }, [mergedProtocols]);
@@ -951,7 +946,7 @@ export default function Section6Protocols() {
                               fontSize: "9px",
                               letterSpacing: "0.04em",
                               textTransform: "uppercase",
-                              color: getCategoryColor(p.category),
+                              color: getCategoryColor(p.category, p.slug),
                               borderRadius: 0,
                             }}
                           >

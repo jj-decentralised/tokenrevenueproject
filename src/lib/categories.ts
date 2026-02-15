@@ -563,6 +563,121 @@ export const PROTOCOL_CATEGORY_OVERRIDES: Record<string, string> = {
   "morph": "Chain",
   "fraxtal": "Chain",
   "redstone": "Chain",
+
+  // ── Additional protocol overrides (from "Other" cleanup) ──
+  "padre": "Launchpad",
+  "collector-crypt": "NFT Marketplace",
+  "collectorcrypt": "NFT Marketplace",
+  "catfee": "Launchpad",
+  "cat-fee": "Launchpad",
+  "m0": "Stablecoins",
+  "m0-foundation": "Stablecoins",
+  "bankr": "Wallet",
+  "base-app": "Chain",
+  "base-name-service": "Identity",
+  "phantom-perps": "Perpetuals",
+  "dex-screener": "Wallet",
+  "dexscreener": "Wallet",
+  "spark-liquidity": "Lending",
+
+  // ── More protocols commonly in "Other" ──
+  "matcha": "DEX Aggregator",
+  "zeroex": "DEX Aggregator",
+  "firebird-finance": "DEX Aggregator",
+  "rubic": "DEX Aggregator",
+  "rango": "DEX Aggregator",
+  "jumper-exchange": "DEX Aggregator",
+  "jupiter-dca": "DEX Aggregator",
+  "jupiter-limit": "DEX Aggregator",
+  "jupiter-perpetual": "Perpetuals",
+  "jupiter-perps": "Perpetuals",
+  "aldrin": "Dexs",
+  "saros": "Dexs",
+
+  // ── Prediction markets / Betting ──
+  "overtime-markets": "Prediction Market",
+  "thales": "Prediction Market",
+  "sx-bet": "Prediction Market",
+
+  // ── Insurance ──
+  "nexus-mutual": "Insurance",
+  "insurace": "Insurance",
+
+  // ── Payments / Transfers ──
+  "gnosis-pay": "Payments",
+  "sling": "Payments",
+  "utila": "Payments",
+
+  // ── Derivatives / Structured Products ──
+  "ribbon-finance": "Options",
+  "opyn": "Options",
+  "hegic": "Options",
+  "dopex": "Options",
+  "derive": "Options",
+  "thetanuts-finance": "Options",
+  "buffer-finance": "Options",
+  "typus-finance": "Options",
+
+  // ── Privacy ──
+  "railgun": "Privacy",
+  "tornado-cash": "Privacy",
+
+  // ── Liquid Staking additional ──
+  "sanctum": "Liquid Staking",
+  "benqi-staked-avax": "Liquid Staking",
+  "origin-ether": "Liquid Staking",
+  "dinero-pxeth": "Liquid Restaking",
+
+  // ── RWA additional ──
+  "securitize": "RWA",
+  "swarm": "RWA",
+  "realio": "RWA",
+  "propchain": "RWA",
+  "credix": "RWA",
+  "parcl": "RWA",
+
+  // ── Gaming / Metaverse ──
+  "immutable": "Gaming",
+  "immutable-passport": "Gaming",
+  "gala-games": "Gaming",
+  "yield-guild-games": "Gaming",
+  "illuvium": "Gaming",
+  "gods-unchained": "Gaming",
+  "pixels": "Gaming",
+  "star-atlas": "Gaming",
+  "parallel": "Gaming",
+
+  // ── Social / Content ──
+  "mirror": "SocialFi",
+  "paragraph": "SocialFi",
+  "drakula": "SocialFi",
+  "hey": "SocialFi",
+  "orb": "SocialFi",
+
+  // ── AI / Data ──
+  "fetch.ai": "AI",
+  "singularitynet": "AI",
+  "ocean-protocol": "AI",
+  "giza": "AI",
+  "pond": "AI",
+  "allora": "AI",
+  "morpheus": "AI",
+  "cookie": "AI",
+  "cookie-fun": "AI",
+  "cookie3": "AI",
+  "kaito": "AI",
+  "nillion": "AI",
+  "ritual": "AI",
+  "modulus-labs": "AI",
+  "ora": "AI",
+  "sahara-ai": "AI",
+  "prime-intellect": "AI",
+  "sentient": "AI",
+  "nous-research": "AI",
+  "eliza": "AI",
+  "ai16z": "AI",
+  "griffain": "AI",
+  "wayfinder": "AI",
 };
 
 // ---------------------------------------------------------------------------

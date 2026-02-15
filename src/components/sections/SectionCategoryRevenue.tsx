@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import { useDataContext } from "@/lib/DataContext";
 import type { LiveProtocolFee } from "@/lib/DataContext";
-import { getCategoryGroup, GROUP_COLORS } from "@/lib/categories";
+import { getCategoryGroup, GROUP_COLORS, CATEGORY_GROUP } from "@/lib/categories";
 import { formatCompact, tooltipStyle } from "@/lib/chartUtils";
 import { Card, DataSource } from "@/components/ui/Card";
 import { ChartExport } from "@/components/ui/ChartExport";
@@ -109,6 +109,32 @@ function CategoryTooltip({
 }
 
 // ---------------------------------------------------------------------------
+// Drill-down tree data types
+// ---------------------------------------------------------------------------
+
+interface ProtocolRow {
+  name: string;
+  slug: string;
+  value: number;
+  change7d: number | null;
+  revenue24h: number | null;
+  margin: number | null;
+}
+
+interface SubcategoryRow {
+  name: string;
+  value: number;
+  count: number;
+  protocols: ProtocolRow[];
+}
+
+interface DrillDownData {
+  group: string;
+  totalValue: number;
+  subcategories: SubcategoryRow[];
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -118,22 +144,42 @@ export default function SectionCategoryRevenue() {
   const [period, setPeriod] = useState<TimePeriod>("24h");
   const [viewMode, setViewMode] = useState<"category" | "project">("category");
   const [zoomIdx, setZoomIdx] = useState(0); // index into ZOOM_LEVELS
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+  const [expandedSubcats, setExpandedSubcats] = useState<Set<string>>(new Set());
 
   const topN = ZOOM_LEVELS[zoomIdx];
   const protocols = fees?.protocols ?? [];
 
+  // --- Build resolved protocol list with group + subcategory ---
+  const resolvedProtocols = useMemo(() => {
+    return protocols
+      .map((p) => {
+        const slug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
+        const group = getCategoryGroup(p.category || "Other", slug);
+        // Determine subcategory: use the raw category if it maps to this group,
+        // otherwise use the override subcategory or fallback to group name
+        const rawCat = p.category || "Other";
+        const rawGroup = CATEGORY_GROUP[rawCat];
+        const subcategory = rawGroup === group ? rawCat : group;
+        return {
+          protocol: p,
+          slug,
+          group,
+          subcategory,
+          value: getFieldForPeriod(p, period),
+        };
+      })
+      .filter((r) => r.value > 0);
+  }, [protocols, period]);
+
   // --- Category data ---
   const categoryData = useMemo(() => {
     const groups = new Map<string, { value: number; count: number }>();
-    for (const p of protocols) {
-      const slug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
-      const group = getCategoryGroup(p.category || "Other", slug);
-      const value = getFieldForPeriod(p, period);
-      if (value <= 0) continue;
-      const existing = groups.get(group) ?? { value: 0, count: 0 };
-      existing.value += value;
+    for (const r of resolvedProtocols) {
+      const existing = groups.get(r.group) ?? { value: 0, count: 0 };
+      existing.value += r.value;
       existing.count += 1;
-      groups.set(group, existing);
+      groups.set(r.group, existing);
     }
     return Array.from(groups.entries())
       .map(([name, { value, count }]) => ({
@@ -143,26 +189,61 @@ export default function SectionCategoryRevenue() {
         color: GROUP_COLORS[name] || "#94a3b8",
       }))
       .sort((a, b) => b.value - a.value);
-  }, [protocols, period]);
+  }, [resolvedProtocols]);
 
   // --- Project data ---
   const projectData = useMemo(() => {
-    return protocols
-      .map((p) => {
-        const slug = p.slug || p.name.toLowerCase().replace(/\s+/g, "-");
-        const group = getCategoryGroup(p.category || "Other", slug);
-        return {
-          name: p.displayName || p.name,
-          slug,
-          value: getFieldForPeriod(p, period),
-          color: GROUP_COLORS[group] || "#94a3b8",
-          category: group,
-        };
-      })
-      .filter((p) => p.value > 0)
+    return resolvedProtocols
+      .map((r) => ({
+        name: r.protocol.displayName || r.protocol.name,
+        slug: r.slug,
+        value: r.value,
+        color: GROUP_COLORS[r.group] || "#94a3b8",
+        category: r.group,
+      }))
       .sort((a, b) => b.value - a.value)
       .slice(0, topN);
-  }, [protocols, period, topN]);
+  }, [resolvedProtocols, topN]);
+
+  // --- Drill-down data for selected group ---
+  const drillDownData = useMemo((): DrillDownData | null => {
+    if (!selectedGroup || viewMode !== "category") return null;
+
+    const groupProtocols = resolvedProtocols.filter(
+      (r) => r.group === selectedGroup
+    );
+    if (groupProtocols.length === 0) return null;
+
+    // Group by subcategory
+    const subcatMap = new Map<string, ProtocolRow[]>();
+    for (const r of groupProtocols) {
+      const key = r.subcategory;
+      if (!subcatMap.has(key)) subcatMap.set(key, []);
+      subcatMap.get(key)!.push({
+        name: r.protocol.displayName || r.protocol.name,
+        slug: r.slug,
+        value: r.value,
+        change7d: r.protocol.change_7d ?? null,
+        revenue24h: r.protocol.revenue24h ?? null,
+        margin: r.protocol.margin ?? null,
+      });
+    }
+
+    const subcategories: SubcategoryRow[] = Array.from(subcatMap.entries())
+      .map(([name, protos]) => ({
+        name,
+        value: protos.reduce((s, p) => s + p.value, 0),
+        count: protos.length,
+        protocols: protos.sort((a, b) => b.value - a.value),
+      }))
+      .sort((a, b) => b.value - a.value);
+
+    return {
+      group: selectedGroup,
+      totalValue: groupProtocols.reduce((s, r) => s + r.value, 0),
+      subcategories,
+    };
+  }, [selectedGroup, viewMode, resolvedProtocols]);
 
   const chartData = viewMode === "category" ? categoryData : projectData;
 
@@ -188,6 +269,27 @@ export default function SectionCategoryRevenue() {
     setZoomIdx(0);
   }, []);
 
+  const handleBarClick = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (data: any) => {
+      if (viewMode !== "category") return;
+      const name = data?.name || data?.payload?.name;
+      if (!name) return;
+      setSelectedGroup((prev) => (prev === name ? null : name));
+      setExpandedSubcats(new Set());
+    },
+    [viewMode],
+  );
+
+  const toggleSubcat = useCallback((name: string) => {
+    setExpandedSubcats((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }, []);
+
   if (protocols.length === 0) return null;
 
   return (
@@ -211,6 +313,11 @@ export default function SectionCategoryRevenue() {
           {formatCompact(totalFees)}
         </span>{" "}
         ({PERIODS.find((p) => p.key === period)?.label})
+        {viewMode === "category" && (
+          <span style={{ color: "#999999" }}>
+            {" "}&mdash; click a category to drill down
+          </span>
+        )}
       </p>
       <hr className="wsj-rule mb-6" />
 
@@ -224,7 +331,7 @@ export default function SectionCategoryRevenue() {
           {PERIODS.map(({ key, label }) => (
             <button
               key={key}
-              onClick={() => setPeriod(key)}
+              onClick={() => { setPeriod(key); setSelectedGroup(null); }}
               style={{
                 fontSize: "11px",
                 fontWeight: 600,
@@ -250,7 +357,7 @@ export default function SectionCategoryRevenue() {
         {/* View Mode Toggle */}
         <div className="flex gap-1">
           <button
-            onClick={() => setViewMode("category")}
+            onClick={() => { setViewMode("category"); setSelectedGroup(null); }}
             style={{
               fontSize: "11px",
               fontWeight: 600,
@@ -267,7 +374,7 @@ export default function SectionCategoryRevenue() {
             By Category
           </button>
           <button
-            onClick={() => setViewMode("project")}
+            onClick={() => { setViewMode("project"); setSelectedGroup(null); }}
             style={{
               fontSize: "11px",
               fontWeight: 600,
@@ -426,6 +533,8 @@ export default function SectionCategoryRevenue() {
                   dataKey="value"
                   name="Fees"
                   barSize={viewMode === "category" ? 24 : 16}
+                  onClick={handleBarClick}
+                  style={{ cursor: viewMode === "category" ? "pointer" : "default" }}
                   label={{
                     position: "right",
                     formatter: (v: number) => formatCompact(v),
@@ -435,7 +544,16 @@ export default function SectionCategoryRevenue() {
                   }}
                 >
                   {chartData.map((entry, idx) => (
-                    <Cell key={idx} fill={entry.color} />
+                    <Cell
+                      key={idx}
+                      fill={entry.color}
+                      stroke={
+                        viewMode === "category" && selectedGroup === entry.name
+                          ? "#111111"
+                          : "none"
+                      }
+                      strokeWidth={selectedGroup === entry.name ? 2 : 0}
+                    />
                   ))}
                 </Bar>
               </BarChart>
@@ -464,6 +582,351 @@ export default function SectionCategoryRevenue() {
                 </span>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Drill-down tree table */}
+        {drillDownData && (
+          <div
+            style={{
+              borderTop: "2px solid #111111",
+              marginTop: 16,
+              paddingTop: 12,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 8,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div
+                  style={{
+                    width: 12,
+                    height: 12,
+                    backgroundColor: GROUP_COLORS[drillDownData.group] || "#94a3b8",
+                    flexShrink: 0,
+                  }}
+                />
+                <span
+                  style={{
+                    fontFamily: "Georgia, serif",
+                    fontWeight: 700,
+                    fontSize: "16px",
+                    color: "#111111",
+                  }}
+                >
+                  {drillDownData.group}
+                </span>
+                <span style={{ fontSize: "12px", color: "#999999" }}>
+                  {drillDownData.subcategories.reduce((s, sc) => s + sc.count, 0)} protocols
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span
+                  style={{ fontSize: "13px", fontWeight: 700, color: "#111111" }}
+                >
+                  {formatCompact(drillDownData.totalValue)}
+                </span>
+                <button
+                  onClick={() => setSelectedGroup(null)}
+                  style={{
+                    fontSize: "10px",
+                    fontWeight: 600,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    padding: "3px 8px",
+                    border: "1px solid #d4d4d4",
+                    backgroundColor: "#ffffff",
+                    color: "#666666",
+                    cursor: "pointer",
+                    borderRadius: 0,
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div style={{ overflowX: "auto" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: "12px",
+                }}
+              >
+                <thead>
+                  <tr
+                    style={{
+                      borderBottom: "1px solid #d4d4d4",
+                    }}
+                  >
+                    <th
+                      style={{
+                        textAlign: "left",
+                        padding: "6px 8px",
+                        fontWeight: 600,
+                        fontSize: "10px",
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "#999999",
+                      }}
+                    >
+                      Subcategory / Protocol
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "right",
+                        padding: "6px 8px",
+                        fontWeight: 600,
+                        fontSize: "10px",
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "#999999",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      Fees ({PERIODS.find((p) => p.key === period)?.label})
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "right",
+                        padding: "6px 8px",
+                        fontWeight: 600,
+                        fontSize: "10px",
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "#999999",
+                      }}
+                    >
+                      Share
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "center",
+                        padding: "6px 8px",
+                        fontWeight: 600,
+                        fontSize: "10px",
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "#999999",
+                      }}
+                    >
+                      #
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "right",
+                        padding: "6px 8px",
+                        fontWeight: 600,
+                        fontSize: "10px",
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "#999999",
+                      }}
+                    >
+                      7d Chg
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "right",
+                        padding: "6px 8px",
+                        fontWeight: 600,
+                        fontSize: "10px",
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "#999999",
+                      }}
+                    >
+                      Margin
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {drillDownData.subcategories.map((subcat) => {
+                    const isExpanded = expandedSubcats.has(subcat.name);
+                    const share =
+                      drillDownData.totalValue > 0
+                        ? (subcat.value / drillDownData.totalValue) * 100
+                        : 0;
+
+                    return (
+                      <React.Fragment key={subcat.name}>
+                        {/* Subcategory row */}
+                        <tr
+                          onClick={() => toggleSubcat(subcat.name)}
+                          style={{
+                            cursor: "pointer",
+                            borderBottom: "1px solid #f0f0f0",
+                            backgroundColor: isExpanded ? "#fafafa" : "transparent",
+                          }}
+                        >
+                          <td
+                            style={{
+                              padding: "7px 8px",
+                              fontWeight: 600,
+                              color: "#111111",
+                            }}
+                          >
+                            <span style={{ color: "#999999", marginRight: 6, fontSize: "10px" }}>
+                              {isExpanded ? "\u25BC" : "\u25B6"}
+                            </span>
+                            {subcat.name}
+                          </td>
+                          <td
+                            style={{
+                              textAlign: "right",
+                              padding: "7px 8px",
+                              fontWeight: 600,
+                              color: "#111111",
+                            }}
+                          >
+                            {formatCompact(subcat.value)}
+                          </td>
+                          <td
+                            style={{
+                              textAlign: "right",
+                              padding: "7px 8px",
+                              color: "#666666",
+                            }}
+                          >
+                            {share.toFixed(1)}%
+                          </td>
+                          <td
+                            style={{
+                              textAlign: "center",
+                              padding: "7px 8px",
+                              color: "#999999",
+                            }}
+                          >
+                            {subcat.count}
+                          </td>
+                          <td
+                            style={{
+                              textAlign: "right",
+                              padding: "7px 8px",
+                              color: "#999999",
+                            }}
+                          >
+                            &mdash;
+                          </td>
+                          <td
+                            style={{
+                              textAlign: "right",
+                              padding: "7px 8px",
+                              color: "#999999",
+                            }}
+                          >
+                            &mdash;
+                          </td>
+                        </tr>
+
+                        {/* Protocol rows (expanded) */}
+                        {isExpanded &&
+                          subcat.protocols.map((proto) => {
+                            const protoShare =
+                              drillDownData.totalValue > 0
+                                ? (proto.value / drillDownData.totalValue) * 100
+                                : 0;
+                            const change7d = proto.change7d;
+                            const margin = proto.margin;
+
+                            return (
+                              <tr
+                                key={proto.slug}
+                                style={{
+                                  borderBottom: "1px solid #f5f5f5",
+                                  backgroundColor: "#fafafa",
+                                }}
+                              >
+                                <td
+                                  style={{
+                                    padding: "5px 8px 5px 32px",
+                                    color: "#333333",
+                                  }}
+                                >
+                                  {proto.name}
+                                </td>
+                                <td
+                                  style={{
+                                    textAlign: "right",
+                                    padding: "5px 8px",
+                                    color: "#333333",
+                                    fontWeight: 500,
+                                  }}
+                                >
+                                  {formatCompact(proto.value)}
+                                </td>
+                                <td
+                                  style={{
+                                    textAlign: "right",
+                                    padding: "5px 8px",
+                                    color: "#999999",
+                                    fontSize: "11px",
+                                  }}
+                                >
+                                  {protoShare < 0.1
+                                    ? "<0.1%"
+                                    : `${protoShare.toFixed(1)}%`}
+                                </td>
+                                <td
+                                  style={{
+                                    textAlign: "center",
+                                    padding: "5px 8px",
+                                    color: "#999999",
+                                  }}
+                                />
+                                <td
+                                  style={{
+                                    textAlign: "right",
+                                    padding: "5px 8px",
+                                    fontSize: "11px",
+                                    color:
+                                      change7d == null
+                                        ? "#999999"
+                                        : change7d >= 0
+                                        ? "#16a34a"
+                                        : "#dc2626",
+                                    fontWeight: change7d != null ? 600 : 400,
+                                  }}
+                                >
+                                  {change7d == null
+                                    ? "\u2014"
+                                    : `${change7d >= 0 ? "+" : ""}${change7d.toFixed(1)}%`}
+                                </td>
+                                <td
+                                  style={{
+                                    textAlign: "right",
+                                    padding: "5px 8px",
+                                    fontSize: "11px",
+                                    color:
+                                      margin == null
+                                        ? "#999999"
+                                        : margin >= 0.5
+                                        ? "#16a34a"
+                                        : margin >= 0.2
+                                        ? "#333333"
+                                        : "#dc2626",
+                                  }}
+                                >
+                                  {margin == null
+                                    ? "\u2014"
+                                    : `${(margin * 100).toFixed(0)}%`}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
