@@ -86,6 +86,52 @@ export interface LiveProtocolHistory {
   }[];
 }
 
+export interface LiveCoinGlassData {
+  openInterest: {
+    btc: Array<{ date: number; open: number; high: number; low: number; close: number }>;
+    eth: Array<{ date: number; open: number; high: number; low: number; close: number }>;
+    btcCurrent: number;
+    ethCurrent: number;
+  };
+  fundingRate: {
+    btc: Array<{ date: number; rate: number }>;
+    currentRate: number;
+  };
+  liquidations: {
+    history: Array<{ date: number; longLiquidations: number; shortLiquidations: number; totalLiquidations: number }>;
+    total24h: number;
+  };
+  longShortRatio: {
+    history: Array<{ date: number; longRatio: number; shortRatio: number; longShortRatio: number }>;
+    currentRatio: number;
+  };
+  fetchedAt: string;
+}
+
+export interface LiveCoinGeckoData {
+  global: {
+    totalMarketCap: number;
+    totalVolume24h: number;
+    btcDominance: number;
+    ethDominance: number;
+    marketCapChange24h: number;
+  };
+  tokens: Array<{
+    id: string;
+    symbol: string;
+    name: string;
+    currentPrice: number;
+    marketCap: number;
+    priceChange24h: number;
+    priceChange7d: number;
+    priceChange30d: number;
+    fullyDilutedValuation: number | null;
+    totalVolume24h: number;
+  }>;
+  historicalMarketCap: Array<{ date: number; marketCap: number }>;
+  fetchedAt: string;
+}
+
 export interface LiveData {
   fees: LiveFeeOverview | null;
   sentiment: LiveSentiment | null;
@@ -93,6 +139,8 @@ export interface LiveData {
   tvl: LiveTVLData | null;
   etf: LiveETFData | null;
   protocolHistory: LiveProtocolHistory | null;
+  coinGlass: LiveCoinGlassData | null;
+  coinGecko: LiveCoinGeckoData | null;
   isLoading: boolean;
   isLive: boolean;
   lastUpdated: Date | null;
@@ -107,6 +155,8 @@ const defaultLiveData: LiveData = {
   tvl: null,
   etf: null,
   protocolHistory: null,
+  coinGlass: null,
+  coinGecko: null,
   isLoading: true,
   isLive: false,
   lastUpdated: null,
@@ -369,6 +419,88 @@ async function fetchETF(): Promise<LiveETFData | null> {
   }
 }
 
+/**
+ * Fetch CoinGlass derivatives data and normalise into LiveCoinGlassData.
+ *
+ * The /api/coinglass route returns either
+ *   { source: "static", data: null }   (no API key)
+ *   { source: "api",    data: { ... } } (live data)
+ *
+ * We unwrap the `.data` envelope and return it typed.
+ */
+async function fetchCoinGlass(): Promise<LiveCoinGlassData | null> {
+  try {
+    const res = await fetch("/api/coinglass");
+    if (!res.ok) return null;
+    const json = await res.json();
+
+    // Static fallback — no API key configured
+    if (json.source === "static" || !json.data) return null;
+
+    const d = json.data as LiveCoinGlassData;
+    return d;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch CoinGecko market data and normalise into LiveCoinGeckoData.
+ */
+async function fetchCoinGecko(): Promise<LiveCoinGeckoData | null> {
+  try {
+    const res = await fetch("/api/coingecko");
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json.error) return null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = json as Record<string, any>;
+
+    const globalRaw = raw.global ?? {};
+    const global = {
+      totalMarketCap: Number(globalRaw.totalMarketCap ?? 0),
+      totalVolume24h: Number(globalRaw.totalVolume24h ?? 0),
+      btcDominance: Number(globalRaw.btcDominance ?? 0),
+      ethDominance: Number(globalRaw.ethDominance ?? 0),
+      marketCapChange24h: Number(globalRaw.marketCapChange24h ?? 0),
+    };
+
+    const tokens = Array.isArray(raw.tokens)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? raw.tokens.map((t: any) => ({
+          id: String(t.id ?? ""),
+          symbol: String(t.symbol ?? ""),
+          name: String(t.name ?? ""),
+          currentPrice: Number(t.currentPrice ?? 0),
+          marketCap: Number(t.marketCap ?? 0),
+          priceChange24h: Number(t.priceChange24h ?? 0),
+          priceChange7d: Number(t.priceChange7d ?? 0),
+          priceChange30d: Number(t.priceChange30d ?? 0),
+          fullyDilutedValuation: t.fullyDilutedValuation != null ? Number(t.fullyDilutedValuation) : null,
+          totalVolume24h: Number(t.totalVolume24h ?? 0),
+        }))
+      : [];
+
+    const historicalMarketCap = Array.isArray(raw.historicalMarketCap)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? raw.historicalMarketCap.map((entry: any) => ({
+          date: Number(entry.date ?? 0),
+          marketCap: Number(entry.marketCap ?? 0),
+        }))
+      : [];
+
+    return {
+      global,
+      tokens,
+      historicalMarketCap,
+      fetchedAt: String(raw.fetchedAt ?? new Date().toISOString()),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const [fees, setFees] = useState<LiveFeeOverview | null>(null);
   const [sentiment, setSentiment] = useState<LiveSentiment | null>(null);
@@ -376,6 +508,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [tvl, setTvl] = useState<LiveTVLData | null>(null);
   const [etf, setEtf] = useState<LiveETFData | null>(null);
   const [protocolHistory, setProtocolHistory] = useState<LiveProtocolHistory | null>(null);
+  const [coinGlass, setCoinGlass] = useState<LiveCoinGlassData | null>(null);
+  const [coinGecko, setCoinGecko] = useState<LiveCoinGeckoData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
@@ -384,13 +518,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     const errs: string[] = [];
 
-    const [feesData, sentimentData, ttData, tvlData, etfData, protocolHistoryData] = await Promise.allSettled([
+    const [feesData, sentimentData, ttData, tvlData, etfData, protocolHistoryData, coinGlassData, coinGeckoData] = await Promise.allSettled([
       fetchFees(),
       fetchJSON<LiveSentiment>("/api/sentiment"),
       fetchJSON<LiveTokenTerminalData>("/api/tokenterminal"),
       fetchTVL(),
       fetchETF(),
       fetchProtocolHistory(),
+      fetchCoinGlass(),
+      fetchCoinGecko(),
     ]);
 
     if (feesData.status === "fulfilled" && feesData.value) {
@@ -429,6 +565,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       errs.push("Protocol history fetch failed");
     }
 
+    if (coinGlassData.status === "fulfilled" && coinGlassData.value) {
+      setCoinGlass(coinGlassData.value);
+    } else {
+      errs.push("CoinGlass derivatives data fetch failed");
+    }
+
+    if (coinGeckoData.status === "fulfilled" && coinGeckoData.value) {
+      setCoinGecko(coinGeckoData.value);
+    } else {
+      errs.push("CoinGecko market data fetch failed");
+    }
+
     setErrors(errs);
     setIsLoading(false);
     setLastUpdated(new Date());
@@ -441,11 +589,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [fetchAll]);
 
-  const isLive = !!(fees || sentiment || tokenTerminal || tvl || etf || protocolHistory);
+  const isLive = !!(fees || sentiment || tokenTerminal || tvl || etf || protocolHistory || coinGlass || coinGecko);
 
   return (
     <DataContext.Provider
-      value={{ fees, sentiment, tokenTerminal, tvl, etf, protocolHistory, isLoading, isLive, lastUpdated, errors, refetch: fetchAll }}
+      value={{ fees, sentiment, tokenTerminal, tvl, etf, protocolHistory, coinGlass, coinGecko, isLoading, isLive, lastUpdated, errors, refetch: fetchAll }}
     >
       {children}
     </DataContext.Provider>
