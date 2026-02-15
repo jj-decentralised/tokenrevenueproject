@@ -526,7 +526,7 @@ export default function Section4Moats() {
           </div>
         </ChartExport>
 
-        <DataSource sources={["TokenTerminal", "DefiLlama", "1kx Onchain Revenue Report Q3 2025"]} />
+        <DataSource sources={["TokenTerminal (live)", "DefiLlama (live)"]} />
       </Card>
 
       {/* ---- Insight: What makes a durable crypto moat ---- */}
@@ -683,7 +683,7 @@ export default function Section4Moats() {
           </div>
         </div>
 
-        <DataSource sources={["Internal analysis", "1kx Onchain Revenue Report", "DefiLlama"]} />
+        <DataSource sources={["DefiLlama (live)", "TokenTerminal (live)"]} />
       </Card>
 
       {/* ---- Insight boxes: durability conclusions ---- */}
@@ -845,7 +845,7 @@ export default function Section4Moats() {
           </table>
         </div>
 
-        <DataSource sources={["TokenTerminal", "DefiLlama", "CoinGecko (live)", "1kx Onchain Revenue Report Q3 2025", "Internal analysis"]} />
+        <DataSource sources={["TokenTerminal (live)", "DefiLlama (live)", "CoinGecko (live)"]} />
       </Card>
     </section>
   );

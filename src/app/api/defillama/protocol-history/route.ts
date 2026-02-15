@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
 function getBaseUrl(): string {
   const key = process.env.DEFILLAMA_API_KEY;
   if (key) {
-    return `https://pro-api.llama.fi/${key}`;
+    return `https://pro-api.llama.fi/${key}/api`;
   }
   return "https://api.llama.fi";
 }
@@ -134,9 +134,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     for (let i = 0; i < capped.length; i++) {
       const slug = capped[i];
 
-      // Add 200ms delay between requests (skip before the first one)
+      // Add 100ms delay between requests (skip before the first one)
       if (i > 0) {
-        await delay(200);
+        await delay(100);
       }
 
       try {

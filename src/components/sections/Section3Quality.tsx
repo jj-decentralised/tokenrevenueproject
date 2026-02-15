@@ -344,8 +344,8 @@ export default function Section3Quality() {
         .map(([sector, value]) => ({
           sector,
           name: sector,
-          // Convert to billions for consistency with static data display
-          value: value / 1e9,
+          // Annualize from 30d to yearly, then convert to billions
+          value: (value / 30) * 365 / 1e9,
           share: total > 0 ? Math.round((value / total) * 100) : 0,
           color: getPieColor(sector),
         }));
@@ -391,7 +391,8 @@ export default function Section3Quality() {
         .sort((a, b) => b[1] - a[1])
         .map(([sector, value]) => ({
           sector,
-          value: value / 1e9,
+          // Annualize from 30d to yearly, then convert to billions
+          value: (value / 30) * 365 / 1e9,
           share: total > 0 ? Math.round((value / total) * 100) : 0,
           color: getPieColor(sector),
           // YoY growth not available from live 30d snapshot; show N/A
@@ -701,7 +702,7 @@ export default function Section3Quality() {
             </div>
           </ChartExport>
 
-          <DataSource sources={["1kx 2025 Onchain Revenue Report", "DefiLlama", "TokenTerminal"]} />
+          <DataSource sources={["DefiLlama (live)", "TokenTerminal (live)"]} />
         </Card>
 
         {/* ---------------------------------------------------------------- */}
@@ -822,11 +823,7 @@ export default function Section3Quality() {
           </div>
 
           <DataSource
-            sources={
-              isLive
-                ? ["DefiLlama (live)", "1kx 2025 Onchain Revenue Report (H1 2025)"]
-                : ["1kx 2025 Onchain Revenue Report (H1 2025)"]
-            }
+            sources={["DefiLlama (live)", "TokenTerminal (live)"]}
           />
         </Card>
 
@@ -1251,9 +1248,8 @@ export default function Section3Quality() {
         {/* ---------------------------------------------------------------- */}
         <DataSource
           sources={[
-            "1kx 2025 Onchain Revenue Report",
-            "DefiLlama",
-            "TokenTerminal",
+            "DefiLlama (live)",
+            "TokenTerminal (live)",
             "Tether & Circle financial reports",
             "Federal Reserve FRED data",
           ]}

@@ -42,7 +42,7 @@ const PROTOCOL_NAMES: Record<string, string> = {
   raydium: "Raydium",
 };
 
-const RATE_LIMIT_DELAY_MS = 200;
+const RATE_LIMIT_DELAY_MS = 100;
 
 // ---------- response types ----------
 

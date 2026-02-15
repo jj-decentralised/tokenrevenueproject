@@ -760,17 +760,22 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     const errs: string[] = [];
 
-    const [feesData, sentimentData, ttData, tvlData, etfData, protocolHistoryData, activityData, earningsData, coinGlassData, coinGeckoData] = await Promise.allSettled([
-      fetchFees(),
-      fetchJSON<LiveSentiment>("/api/sentiment"),
-      fetchJSON<LiveTokenTerminalData>("/api/tokenterminal"),
-      fetchTVL(),
-      fetchETF(),
-      fetchProtocolHistory(),
-      fetchActivity(),
-      fetchEarnings(),
-      fetchCoinGlass(),
-      fetchCoinGecko(),
+    // Launch ALL fetches in parallel immediately
+    const feesP = fetchFees();
+    const sentimentP = fetchJSON<LiveSentiment>("/api/sentiment");
+    const ttP = fetchJSON<LiveTokenTerminalData>("/api/tokenterminal");
+    const tvlP = fetchTVL();
+    const etfP = fetchETF();
+    const protocolHistoryP = fetchProtocolHistory();
+    const activityP = fetchActivity();
+    const earningsP = fetchEarnings();
+    const coinGlassP = fetchCoinGlass();
+    const coinGeckoP = fetchCoinGecko();
+
+    // Wave 1: Wait for critical data (fees, coinGecko, tvl, sentiment)
+    // These power the main sections and scatter plots
+    const [feesData, coinGeckoData, tvlData, sentimentData] = await Promise.allSettled([
+      feesP, coinGeckoP, tvlP, sentimentP,
     ]);
 
     if (feesData.status === "fulfilled" && feesData.value) {
@@ -779,22 +784,37 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       errs.push("DefiLlama fees fetch failed");
     }
 
-    if (sentimentData.status === "fulfilled" && sentimentData.value) {
-      setSentiment(sentimentData.value);
+    if (coinGeckoData.status === "fulfilled" && coinGeckoData.value) {
+      setCoinGecko(coinGeckoData.value);
     } else {
-      errs.push("Sentiment fetch failed");
-    }
-
-    if (ttData.status === "fulfilled" && ttData.value) {
-      setTokenTerminal(ttData.value);
-    } else {
-      errs.push("TokenTerminal fetch failed (check API key)");
+      errs.push("CoinGecko market data fetch failed");
     }
 
     if (tvlData.status === "fulfilled" && tvlData.value) {
       setTvl(tvlData.value);
     } else {
       errs.push("TVL fetch failed");
+    }
+
+    if (sentimentData.status === "fulfilled" && sentimentData.value) {
+      setSentiment(sentimentData.value);
+    } else {
+      errs.push("Sentiment fetch failed");
+    }
+
+    // Unblock the UI — sections can start rendering with critical data
+    setIsLoading(false);
+    setLastUpdated(new Date());
+
+    // Wave 2: Process secondary data as it arrives (already in flight)
+    const [ttData, etfData, protocolHistoryData, activityData, earningsData, coinGlassData] = await Promise.allSettled([
+      ttP, etfP, protocolHistoryP, activityP, earningsP, coinGlassP,
+    ]);
+
+    if (ttData.status === "fulfilled" && ttData.value) {
+      setTokenTerminal(ttData.value);
+    } else {
+      errs.push("TokenTerminal fetch failed (check API key)");
     }
 
     if (etfData.status === "fulfilled" && etfData.value) {
@@ -827,14 +847,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       errs.push("CoinGlass derivatives data fetch failed");
     }
 
-    if (coinGeckoData.status === "fulfilled" && coinGeckoData.value) {
-      setCoinGecko(coinGeckoData.value);
-    } else {
-      errs.push("CoinGecko market data fetch failed");
-    }
-
     setErrors(errs);
-    setIsLoading(false);
     setLastUpdated(new Date());
   }, []);
 

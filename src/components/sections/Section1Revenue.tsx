@@ -280,6 +280,33 @@ export default function Section1Revenue() {
         : annualizedRev * 0.65;
       const liveCryptoPEExStable = Math.round(totalMarketCap / annualizedRevExStable);
 
+      // Helper: compute category P/E from live protocol fees + CoinGecko market caps
+      const computeCategoryPE = (categories: string[]): { pe: number; mcap: number; rev: number } | null => {
+        if (!ctx.fees?.protocols || !ctx.coinGecko?.tokens) return null;
+        const catProtos = ctx.fees.protocols.filter(
+          (p) => categories.some(c => (p.category || "").toLowerCase().includes(c))
+        );
+        if (catProtos.length === 0) return null;
+        const annRev = catProtos.reduce((s, p) => s + (p.total24h * 365), 0);
+        if (annRev === 0) return null;
+        // Match tokens by name
+        let totalMcap = 0;
+        for (const p of catProtos) {
+          const token = ctx.coinGecko!.tokens.find(
+            t => t.name.toLowerCase() === (p.displayName || p.name).toLowerCase() ||
+                 t.id.toLowerCase() === p.name.toLowerCase()
+          );
+          if (token) totalMcap += token.marketCap;
+        }
+        if (totalMcap === 0) return null;
+        return { pe: Math.round(totalMcap / annRev), mcap: totalMcap / 1e9, rev: annRev / 1e9 };
+      };
+
+      const defiPE = computeCategoryPE(["defi", "lending", "yield", "liquid staking", "dex", "derivatives", "cdp", "bridge"]);
+      const dexPE = computeCategoryPE(["dex"]);
+      const lendingPE = computeCategoryPE(["lending"]);
+      const l1PE = computeCategoryPE(["chain", "evm", "l1"]);
+
       return staticPEData.map((entry) => {
         if (entry.name === "Crypto (incl. stablecoins)") {
           return {
@@ -294,6 +321,18 @@ export default function Section1Revenue() {
             pe: liveCryptoPEExStable,
             note: `$${totalMarketCap.toFixed(1)}T mcap / $${annualizedRevExStable.toFixed(0)}B rev (live)`,
           };
+        }
+        if (entry.name === "DeFi Median" && defiPE) {
+          return { ...entry, pe: defiPE.pe, note: `$${defiPE.mcap.toFixed(1)}B / $${defiPE.rev.toFixed(1)}B (live)` };
+        }
+        if (entry.name === "DEX Median" && dexPE) {
+          return { ...entry, pe: dexPE.pe, note: `$${dexPE.mcap.toFixed(1)}B / $${dexPE.rev.toFixed(1)}B (live)` };
+        }
+        if (entry.name === "Lending Median" && lendingPE) {
+          return { ...entry, pe: lendingPE.pe, note: `$${lendingPE.mcap.toFixed(1)}B / $${lendingPE.rev.toFixed(1)}B (live)` };
+        }
+        if (entry.name === "L1 Blockchains" && l1PE) {
+          return { ...entry, pe: l1PE.pe, note: `$${l1PE.mcap.toFixed(1)}B / $${l1PE.rev.toFixed(1)}B (live)` };
         }
         // Keep TradFi P/E as static reference data
         return entry;
@@ -599,8 +638,7 @@ export default function Section1Revenue() {
         <DataSource
           sources={[
             "DefiLlama (live)",
-            "1kx 2025 Onchain Revenue Report",
-            "TokenTerminal",
+            "TokenTerminal (live)",
           ]}
         />
       </Card>
@@ -676,8 +714,7 @@ export default function Section1Revenue() {
         <DataSource
           sources={[
             "DefiLlama (live)",
-            "1kx 2025 Onchain Revenue Report",
-            "TokenTerminal",
+            "TokenTerminal (live)",
             "Stablecoin issuer financials",
           ]}
         />
@@ -895,7 +932,6 @@ export default function Section1Revenue() {
             "DefiLlama (live)",
             "WorldPERatio",
             "S&P Global",
-            "1kx",
             "BVP Cloud Index",
           ]}
         />
@@ -1003,8 +1039,7 @@ export default function Section1Revenue() {
           sources={[
             "BVP Cloud Index",
             "Jay Ritter IPO Data",
-            "CoinGecko",
-            "1kx",
+            "CoinGecko (live)",
           ]}
         />
       </Card>

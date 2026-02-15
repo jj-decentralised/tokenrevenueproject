@@ -1258,9 +1258,8 @@ export default function ProtocolProfilePage() {
 
             <DataSource
               sources={[
-                "Internal analysis",
-                "1kx Onchain Revenue Report",
-                "DefiLlama",
+                "DefiLlama (live)",
+                "TokenTerminal (live)",
               ]}
             />
           </Card>

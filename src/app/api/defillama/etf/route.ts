@@ -20,7 +20,7 @@ export const revalidate = 3600; // 1 hour
 function getBaseUrl(): string {
   const key = process.env.DEFILLAMA_API_KEY;
   if (key) {
-    return `https://pro-api.llama.fi/${key}`;
+    return `https://pro-api.llama.fi/${key}/api`;
   }
   return "https://api.llama.fi";
 }

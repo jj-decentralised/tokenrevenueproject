@@ -29,7 +29,7 @@ const VALID_METRICS = ["fees", "revenue", "earnings"] as const;
 type ValidMetric = (typeof VALID_METRICS)[number];
 
 /** Small delay between sequential requests to respect rate limits. */
-const RATE_LIMIT_DELAY_MS = 200;
+const RATE_LIMIT_DELAY_MS = 100;
 
 // ---------------------------------------------------------------------------
 // Types — shapes returned by this API route

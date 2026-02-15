@@ -400,7 +400,7 @@ export default function Section5NextLeaders() {
           </div>
         </ChartExport>
 
-        <DataSource sources={["1kx 2025 Onchain Revenue Report", "DefiLlama", "TokenTerminal", "Team estimates"]} />
+        <DataSource sources={["DefiLlama (live)", "TokenTerminal (live)", "Team estimates"]} />
       </Card>
 
       {/* ================================================================== */}
@@ -925,10 +925,9 @@ export default function Section5NextLeaders() {
 
         <DataSource
           sources={[
-            "1kx 2025 Onchain Revenue Report",
-            "DefiLlama",
-            "TokenTerminal",
-            "CoinGecko",
+            "DefiLlama (live)",
+            "TokenTerminal (live)",
+            "CoinGecko (live)",
             "Team estimates",
           ]}
         />

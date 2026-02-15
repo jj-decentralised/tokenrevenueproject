@@ -882,9 +882,8 @@ export default function Section2Sentiment() {
         <DataSource
           sources={[
             "Alternative.me Fear & Greed Index",
-            "TokenTerminal",
-            "DefiLlama",
-            "1kx Research",
+            "TokenTerminal (live)",
+            "DefiLlama (live)",
           ]}
         />
       </Card>
@@ -1165,10 +1164,9 @@ export default function Section2Sentiment() {
 
       <DataSource
         sources={[
-          "Alternative.me",
-          "TokenTerminal",
-          "DefiLlama",
-          "1kx 2025 Report",
+          "Alternative.me (live)",
+          "TokenTerminal (live)",
+          "DefiLlama (live)",
           "S&P Global",
           "WorldPERatio.com",
         ]}

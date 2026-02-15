@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 function getBaseUrl(): string {
   const key = process.env.DEFILLAMA_API_KEY;
   if (key) {
-    return `https://pro-api.llama.fi/${key}`;
+    return `https://pro-api.llama.fi/${key}/api`;
   }
   return "https://api.llama.fi";
 }

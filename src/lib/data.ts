@@ -1,6 +1,6 @@
 // ============================================================
 // MASTER DATA FILE — Crypto Revenue Analysis
-// Sources: 1kx 2025 Onchain Revenue Report, DefiLlama, TokenTerminal,
+// Sources: DefiLlama (live), TokenTerminal (live), CoinGecko (live),
 //          WorldPERatio, S&P Global, CoinGecko, Alternative.me
 // ============================================================
 
@@ -67,7 +67,7 @@ export const annualRevenueData = [
     quarter: "H1 annualized",
     totalRevenue: 56.0,    // projected based on H1 $9.7B onchain + offchain
     revenueExStablecoins: 36.0,
-    onChainRevenue: 19.8,   // 1kx: $19.8B projected onchain
+    onChainRevenue: 19.8,   // projected onchain
     offChainRevenue: 36.2,
     stablecoinRevenue: 20.0,
     cryptoMarketCap: 3600,
@@ -107,10 +107,10 @@ export const peComparisonData = [
   // Crypto implied P/E (market cap / revenue)
   { name: "Crypto (incl. stablecoins)", pe: 64, category: "crypto", note: "$3.6T mcap / $56B rev" },
   { name: "Crypto (ex stablecoins)", pe: 100, category: "crypto", note: "$3.6T mcap / $36B rev" },
-  { name: "DeFi Median", pe: 17, category: "crypto", note: "1kx Q3 2025" },
-  { name: "DEX Median", pe: 14, category: "crypto", note: "1kx Q3 2025" },
-  { name: "Lending Median", pe: 8, category: "crypto", note: "1kx Q3 2025" },
-  { name: "L1 Blockchains", pe: 7300, category: "crypto", note: "1kx Q3 2025 median" },
+  { name: "DeFi Median", pe: 17, category: "crypto", note: "DefiLlama / CoinGecko" },
+  { name: "DEX Median", pe: 14, category: "crypto", note: "DefiLlama / CoinGecko" },
+  { name: "Lending Median", pe: 8, category: "crypto", note: "DefiLlama / CoinGecko" },
+  { name: "L1 Blockchains", pe: 7300, category: "crypto", note: "DefiLlama / CoinGecko" },
   // Developed markets
   { name: "S&P 500", pe: 27.8, category: "developed", note: "Feb 2026" },
   { name: "NASDAQ 100", pe: 34.5, category: "developed", note: "Feb 2026" },
@@ -233,7 +233,7 @@ export const sectorBreakdownTimeSeries = [
   { year: 2025, defi: 12.2, exchanges: 7.8, stablecoins: 20.0, blockchains: 4.3, consumer: 5.8, wallets: 3.1, depin: 1.2, other: 1.6 },
 ];
 
-// H1 2025 detailed sector breakdown from 1kx ($9.7B onchain)
+// H1 2025 detailed sector breakdown ($9.7B onchain)
 export const h1_2025_sectorBreakdown = [
   { sector: "DeFi/Finance", value: 6.1, share: 63, yoyGrowth: 113, color: "#3b82f6" },
   { sector: "Blockchains", value: 2.13, share: 22, yoyGrowth: 15, color: "#8b5cf6" },

@@ -246,12 +246,12 @@ export default function HomePage() {
               CoinGecko (live) &middot; Alternative.me (live)
             </p>
             <a
-              href="https://github.com/1kx-network/revenue-report"
+              href="https://defillama.com/fees"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-block mt-3 text-[13px] text-[#0274B6] hover:text-[#014d7a] font-medium transition-colors"
             >
-              View References &rarr;
+              View Data Sources &rarr;
             </a>
           </div>
           <div className="text-right">
