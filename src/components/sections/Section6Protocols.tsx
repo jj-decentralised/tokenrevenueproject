@@ -741,12 +741,13 @@ export default function Section6Protocols() {
       // Market cap: CoinGecko → DefiLlama TVL endpoint mcap fallback
       const marketCap = tokenMatch?.marketCap ?? tvlMatch?.mcap ?? null;
       const tvlVal = tvlMatch?.tvl ?? null;
+      const fdv = tokenMatch?.fullyDilutedValuation ?? null;
+      // P/S: prefer Market Cap, fall back to FDV for broader coverage
+      const psNumerator = marketCap ?? fdv;
       const psRatio =
-        marketCap != null && revenueAnn > 0 ? marketCap / revenueAnn : null;
+        psNumerator != null && revenueAnn > 0 ? psNumerator / revenueAnn : null;
       const revenueTvl =
         tvlVal != null && tvlVal > 0 ? feesAnn / tvlVal : null;
-
-      const fdv = tokenMatch?.fullyDilutedValuation ?? null;
       const psFdv = fdv != null && revenueAnn > 0 ? fdv / revenueAnn : null;
       const revenueFdv = fdv != null && fdv > 0 ? revenueAnn / fdv : null;
       const mcapFdvRatio = (marketCap != null && fdv != null && fdv > 0) ? marketCap / fdv : null;

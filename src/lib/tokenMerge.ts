@@ -310,12 +310,14 @@ export function buildUnifiedTokenList(
     const fdv = tokenMatch?.fullyDilutedValuation ?? null;
 
     // ----- P/S: use protocol revenue when available, else total fees -----
+    // Numerator: Market Cap → FDV fallback (maximizes coverage)
     const protoRevAnn = protocolRevenue != null && protocolRevenue > 0
       ? protocolRevenue * 365
       : null;
     const psBase = protoRevAnn ?? feesAnnualized;
+    const psNumerator = marketCap ?? fdv; // fall back to FDV when mcap unavailable
     const psRatio =
-      marketCap != null && psBase > 0 ? marketCap / psBase : null;
+      psNumerator != null && psBase > 0 ? psNumerator / psBase : null;
     const psFdv = fdv != null && psBase > 0 ? fdv / psBase : null;
     const revenueTvl =
       tvlVal != null && tvlVal > 0 ? feesAnnualized / tvlVal : null;
