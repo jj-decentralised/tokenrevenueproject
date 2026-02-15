@@ -29,6 +29,7 @@ import type {
 } from "@/lib/DataContext";
 import { moatAnalysis, CHART_COLORS } from "@/lib/data";
 import { ChartExport } from "@/components/ui/ChartExport";
+import { GlobalNav } from "@/components/ui/GlobalNav";
 import {
   Card,
   StatCard,
@@ -457,9 +458,11 @@ function findProtocolHistory(
 }
 
 function findTVLProtocol(data: LiveTVLData | null, name: string) {
-  if (!data?.topProtocols) return null;
+  // Prefer allProtocolsTVL which includes mcap field
+  const source = data?.allProtocolsTVL ?? data?.topProtocols ?? [];
+  if (source.length === 0) return null;
   return (
-    data.topProtocols.find(
+    source.find(
       (p) => p.name.toLowerCase() === name.toLowerCase()
     ) ?? null
   );
@@ -699,22 +702,25 @@ export default function ProtocolProfilePage() {
 
   if (ctx.isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p
-            className="font-serif font-bold text-[#111111] mb-2"
-            style={{ fontSize: "24px" }}
-          >
-            Loading protocol data...
-          </p>
-          <p className="text-[13px] text-[#999999]">
-            Fetching from DefiLlama, CoinGecko, and TokenTerminal
-          </p>
-          <div className="mt-6 flex justify-center">
-            <div
-              className="w-8 h-0.5 bg-[#0274B6] animate-pulse"
-              style={{ animationDuration: "1.5s" }}
-            />
+      <div className="min-h-screen">
+        <GlobalNav />
+        <div className="flex items-center justify-center pt-24">
+          <div className="text-center">
+            <p
+              className="font-serif font-bold text-[#111111] mb-2"
+              style={{ fontSize: "24px" }}
+            >
+              Loading protocol data...
+            </p>
+            <p className="text-[13px] text-[#999999]">
+              Fetching from DefiLlama, CoinGecko, and TokenTerminal
+            </p>
+            <div className="mt-6 flex justify-center">
+              <div
+                className="w-8 h-0.5 bg-[#0274B6] animate-pulse"
+                style={{ animationDuration: "1.5s" }}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -730,8 +736,9 @@ export default function ProtocolProfilePage() {
     const totalCount = allLiveProtocols.length;
 
     return (
-      <div className="min-h-screen pt-16">
-        <div className="max-w-3xl">
+      <div className="min-h-screen">
+        <GlobalNav />
+        <div className="max-w-3xl pt-8">
           <Link
             href="/"
             className="inline-flex items-center gap-1.5 text-[13px] text-[#0274B6] hover:text-[#014d7a] font-medium transition-colors mb-8"
@@ -832,12 +839,28 @@ export default function ProtocolProfilePage() {
   const displayName = mapping.displayName;
   const category = defiLlamaData?.category ?? "Protocol";
 
+  // ---- Peer protocols in same category ----
+  const peerProtocols = useMemo(() => {
+    if (!defiLlamaData?.category || !ctx.fees?.protocols) return [];
+    return ctx.fees.protocols
+      .filter(
+        (p) =>
+          p.category === defiLlamaData.category &&
+          p.name.toLowerCase() !== defiLlamaData.name.toLowerCase() &&
+          p.total24h > 0,
+      )
+      .sort((a, b) => b.total24h - a.total24h)
+      .slice(0, 10);
+  }, [ctx.fees, defiLlamaData]);
+
   return (
     <div className="min-h-screen pb-24">
+      <GlobalNav />
+
       {/* ============================================ */}
       {/* 1. HEADER                                    */}
       {/* ============================================ */}
-      <header className="pt-10 pb-8">
+      <header className="pt-6 pb-8">
         <Link
           href="/"
           className="inline-flex items-center gap-1.5 text-[13px] text-[#0274B6] hover:text-[#014d7a] font-medium transition-colors"
@@ -1053,6 +1076,148 @@ export default function ProtocolProfilePage() {
           </div>
         )}
       </section>
+
+      {/* ============================================ */}
+      {/* 2b. INCOME STATEMENT (enriched DefiLlama)    */}
+      {/* ============================================ */}
+      {defiLlamaData && defiLlamaData.total24h > 0 && (
+        <section className="mb-12">
+          <h2
+            className="font-serif font-bold text-[#111111] mb-1"
+            style={{ fontSize: "22px", lineHeight: "1.2" }}
+          >
+            Income Statement
+          </h2>
+          <p className="text-[13px] text-[#666666] mb-4" style={{ lineHeight: "1.5" }}>
+            Fee breakdown: what users pay vs. what the protocol keeps vs. what goes to token holders.
+          </p>
+          <hr className="wsj-rule mb-6" />
+
+          <Card>
+            <div className="overflow-x-auto">
+              <table className="financial-table w-full text-left">
+                <thead>
+                  <tr>
+                    <th>Metric</th>
+                    <th style={{ textAlign: "right" }}>24h</th>
+                    <th style={{ textAlign: "right" }}>7d</th>
+                    <th style={{ textAlign: "right" }}>30d</th>
+                    <th style={{ textAlign: "right" }}>Annualized</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="font-medium text-[#111111]">Total Fees</td>
+                    <td style={{ textAlign: "right" }}>{formatUSD(defiLlamaData.total24h)}</td>
+                    <td style={{ textAlign: "right" }}>{defiLlamaData.total7d > 0 ? formatUSD(defiLlamaData.total7d) : "\u2014"}</td>
+                    <td style={{ textAlign: "right" }}>{defiLlamaData.total30d > 0 ? formatUSD(defiLlamaData.total30d) : "\u2014"}</td>
+                    <td style={{ textAlign: "right", fontWeight: 600 }}>{formatUSD(defiLlamaData.total24h * 365)}</td>
+                  </tr>
+                  {defiLlamaData.revenue24h != null && (
+                    <tr>
+                      <td className="font-medium text-[#111111]">Protocol Revenue</td>
+                      <td style={{ textAlign: "right" }}>{formatUSD(defiLlamaData.revenue24h)}</td>
+                      <td style={{ textAlign: "right" }}>{defiLlamaData.revenue7d != null ? formatUSD(defiLlamaData.revenue7d) : "\u2014"}</td>
+                      <td style={{ textAlign: "right" }}>{defiLlamaData.revenue30d != null ? formatUSD(defiLlamaData.revenue30d) : "\u2014"}</td>
+                      <td style={{ textAlign: "right", fontWeight: 600 }}>{formatUSD(defiLlamaData.revenue24h * 365)}</td>
+                    </tr>
+                  )}
+                  {defiLlamaData.revenue24h != null && (
+                    <tr>
+                      <td className="font-medium text-[#999999]">Supply-Side Fees</td>
+                      <td style={{ textAlign: "right", color: "#999999" }}>
+                        {formatUSD(defiLlamaData.total24h - defiLlamaData.revenue24h)}
+                      </td>
+                      <td style={{ textAlign: "right", color: "#999999" }}>{"\u2014"}</td>
+                      <td style={{ textAlign: "right", color: "#999999" }}>{"\u2014"}</td>
+                      <td style={{ textAlign: "right", color: "#999999" }}>
+                        {formatUSD((defiLlamaData.total24h - defiLlamaData.revenue24h) * 365)}
+                      </td>
+                    </tr>
+                  )}
+                  {defiLlamaData.holdersRevenue24h != null && defiLlamaData.holdersRevenue24h > 0 && (
+                    <tr>
+                      <td className="font-medium text-[#111111]">Holders Revenue</td>
+                      <td style={{ textAlign: "right" }}>{formatUSD(defiLlamaData.holdersRevenue24h)}</td>
+                      <td style={{ textAlign: "right" }}>{"\u2014"}</td>
+                      <td style={{ textAlign: "right" }}>{"\u2014"}</td>
+                      <td style={{ textAlign: "right", fontWeight: 600 }}>{formatUSD(defiLlamaData.holdersRevenue24h * 365)}</td>
+                    </tr>
+                  )}
+                  {defiLlamaData.margin != null && (
+                    <tr>
+                      <td className="font-medium text-[#111111]">Margin (Revenue / Fees)</td>
+                      <td
+                        colSpan={4}
+                        style={{
+                          textAlign: "right",
+                          fontWeight: 700,
+                          color: defiLlamaData.margin >= 0.5 ? "#2e7d32" : defiLlamaData.margin >= 0.2 ? "#c67100" : "#9e2b25",
+                        }}
+                      >
+                        {(defiLlamaData.margin * 100).toFixed(1)}%
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {defiLlamaData.totalAllTime != null && defiLlamaData.totalAllTime > 0 && (
+              <p className="text-[12px] text-[#999999] mt-3">
+                Cumulative all-time fees: {formatUSDCompact(defiLlamaData.totalAllTime)}
+                {defiLlamaData.total1y != null && defiLlamaData.total1y > 0 &&
+                  ` | Trailing 1Y fees: ${formatUSDCompact(defiLlamaData.total1y)}`}
+              </p>
+            )}
+
+            <DataSource sources={["DefiLlama (live fees + revenue + holders)"]} />
+          </Card>
+        </section>
+      )}
+
+      {/* ============================================ */}
+      {/* 2c. METHODOLOGY                              */}
+      {/* ============================================ */}
+      {defiLlamaData?.methodology && Object.keys(defiLlamaData.methodology).length > 0 && (
+        <section className="mb-12">
+          <h2
+            className="font-serif font-bold text-[#111111] mb-1"
+            style={{ fontSize: "22px", lineHeight: "1.2" }}
+          >
+            Fee Methodology
+          </h2>
+          <p className="text-[13px] text-[#666666] mb-4" style={{ lineHeight: "1.5" }}>
+            How DefiLlama calculates fees and revenue for {displayName}.
+          </p>
+          <hr className="wsj-rule mb-6" />
+
+          <Card>
+            <div className="space-y-3">
+              {Object.entries(defiLlamaData.methodology).map(([key, value]) => (
+                <div key={key}>
+                  <p
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      color: "#999999",
+                      marginBottom: 2,
+                    }}
+                  >
+                    {key}
+                  </p>
+                  <p style={{ fontSize: "13px", color: "#333333", lineHeight: "1.5" }}>
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <DataSource sources={["DefiLlama"]} />
+          </Card>
+        </section>
+      )}
 
       {/* ============================================ */}
       {/* 3. REVENUE CHART                             */}
@@ -1599,6 +1764,126 @@ export default function ProtocolProfilePage() {
                 "TokenTerminal (live)",
               ]}
             />
+          </Card>
+        </section>
+      )}
+
+      {/* ============================================ */}
+      {/* 8. PEER COMPARISON                            */}
+      {/* ============================================ */}
+      {peerProtocols.length > 0 && (
+        <section className="mb-12">
+          <h2
+            className="font-serif font-bold text-[#111111] mb-1"
+            style={{ fontSize: "22px", lineHeight: "1.2" }}
+          >
+            Peer Comparison
+          </h2>
+          <p className="text-[13px] text-[#666666] mb-4" style={{ lineHeight: "1.5" }}>
+            Top {peerProtocols.length} protocols in the same category ({defiLlamaData?.category}) by daily fees.
+          </p>
+          <hr className="wsj-rule mb-6" />
+
+          <Card>
+            <div className="overflow-x-auto">
+              <table className="financial-table w-full text-left">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Protocol</th>
+                    <th style={{ textAlign: "right" }}>Fees (24h)</th>
+                    <th style={{ textAlign: "right" }}>Revenue (24h)</th>
+                    <th style={{ textAlign: "right" }}>Margin</th>
+                    <th style={{ textAlign: "right" }}>7d Change</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* Current protocol highlighted */}
+                  {defiLlamaData && (
+                    <tr style={{ backgroundColor: "#f8f8f0" }}>
+                      <td style={{ color: "#999999" }}>&rarr;</td>
+                      <td>
+                        <span style={{ fontWeight: 700, color: "#111111" }}>
+                          {displayName}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "right", fontWeight: 600 }}>
+                        {formatUSDCompact(defiLlamaData.total24h)}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        {defiLlamaData.revenue24h != null
+                          ? formatUSDCompact(defiLlamaData.revenue24h)
+                          : "\u2014"}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        {defiLlamaData.margin != null
+                          ? `${(defiLlamaData.margin * 100).toFixed(0)}%`
+                          : "\u2014"}
+                      </td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          color:
+                            defiLlamaData.change_7d == null
+                              ? "#999999"
+                              : defiLlamaData.change_7d >= 0
+                                ? "#2e7d32"
+                                : "#9e2b25",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {formatPercent(defiLlamaData.change_7d)}
+                      </td>
+                    </tr>
+                  )}
+                  {peerProtocols.map((p, i) => (
+                    <tr key={p.name}>
+                      <td style={{ color: "#999999" }}>{i + 1}</td>
+                      <td>
+                        <Link
+                          href={`/protocol/${slugify(p.name)}`}
+                          style={{
+                            color: "#111111",
+                            fontWeight: 600,
+                            textDecoration: "none",
+                          }}
+                        >
+                          {p.displayName || p.name}
+                        </Link>
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        {formatUSDCompact(p.total24h)}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        {p.revenue24h != null
+                          ? formatUSDCompact(p.revenue24h)
+                          : "\u2014"}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        {p.margin != null
+                          ? `${(p.margin * 100).toFixed(0)}%`
+                          : "\u2014"}
+                      </td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          color:
+                            p.change_7d == null
+                              ? "#999999"
+                              : p.change_7d >= 0
+                                ? "#2e7d32"
+                                : "#9e2b25",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {formatPercent(p.change_7d)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <DataSource sources={["DefiLlama (live)"]} />
           </Card>
         </section>
       )}
