@@ -29,18 +29,36 @@ function getBaseUrl(): string {
 
 interface ProtocolFeeRecord {
   name: string;
+  displayName: string;
   slug: string;
   category: string | null;
+  logo: string | null;
+  defillamaId: string | null;
+  parentProtocol: string | null;
+  // Fees (from default overview call — what users pay)
   total24h: number | null;
   total7d: number | null;
   total30d: number | null;
+  totalAllTime: number | null;
+  total1y: number | null;
+  average1y: number | null;
+  // Revenue (from dataType=dailyRevenue call — what protocol keeps)
   revenue24h: number | null;
   revenue7d: number | null;
   revenue30d: number | null;
+  // Holders revenue (from dataType=dailyHoldersRevenue — buybacks/burns/staking)
+  holdersRevenue24h: number | null;
+  // Derived
+  margin: number | null;
+  // Changes
   change1d: number | null;
   change7d: number | null;
   change1m: number | null;
+  change7dover7d: number | null;
+  change30dover30d: number | null;
   chains: string[];
+  doublecounted: boolean;
+  methodology: Record<string, string> | null;
 }
 
 interface OverviewResponse {
@@ -127,21 +145,62 @@ function safeNum(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function parseProtocol(p: Record<string, unknown>): ProtocolFeeRecord {
+/** Parse a protocol from the fees overview response (default dataType). */
+function parseFeeProtocol(p: Record<string, unknown>): ProtocolFeeRecord {
+  const methodology =
+    p.methodology && typeof p.methodology === "object" && !Array.isArray(p.methodology)
+      ? Object.fromEntries(
+          Object.entries(p.methodology as Record<string, unknown>).map(([k, v]) => [k, String(v ?? "")])
+        )
+      : null;
+
   return {
     name: String(p.name ?? ""),
+    displayName: String(p.displayName ?? p.name ?? ""),
     slug: String(p.slug ?? p.module ?? p.name ?? ""),
     category: p.category ? String(p.category) : null,
+    logo: p.logo ? String(p.logo) : null,
+    defillamaId: p.defillamaId != null ? String(p.defillamaId) : (p.id != null ? String(p.id) : null),
+    parentProtocol: p.parentProtocol ? String(p.parentProtocol) : null,
     total24h: safeNum(p.total24h),
     total7d: safeNum(p.total7d),
     total30d: safeNum(p.total30d),
-    revenue24h: safeNum(p.revenue24h),
-    revenue7d: safeNum(p.revenue7d),
-    revenue30d: safeNum(p.revenue30d),
+    totalAllTime: safeNum(p.totalAllTime),
+    total1y: safeNum(p.total1y),
+    average1y: safeNum(p.average1y),
+    // Revenue and holders filled in later by merge
+    revenue24h: null,
+    revenue7d: null,
+    revenue30d: null,
+    holdersRevenue24h: null,
+    margin: null,
     change1d: safeNum(p.change_1d),
     change7d: safeNum(p.change_7d),
     change1m: safeNum(p.change_1m),
+    change7dover7d: safeNum(p.change_7dover7d),
+    change30dover30d: safeNum(p.change_30dover30d),
     chains: Array.isArray(p.chains) ? p.chains.map(String) : [],
+    doublecounted: p.doublecounted === true,
+    methodology,
+  };
+}
+
+/** Lightweight parse for revenue / holdersRevenue overlay calls. */
+function parseRevenueOverlay(p: Record<string, unknown>): {
+  name: string;
+  slug: string;
+  defillamaId: string | null;
+  total24h: number | null;
+  total7d: number | null;
+  total30d: number | null;
+} {
+  return {
+    name: String(p.name ?? ""),
+    slug: String(p.slug ?? p.module ?? p.name ?? ""),
+    defillamaId: p.defillamaId != null ? String(p.defillamaId) : (p.id != null ? String(p.id) : null),
+    total24h: safeNum(p.total24h),
+    total7d: safeNum(p.total7d),
+    total30d: safeNum(p.total30d),
   };
 }
 
@@ -198,27 +257,84 @@ function parseSingleValueChart(
 
 async function handleOverview(): Promise<NextResponse<OverviewResponse>> {
   const base = getBaseUrl();
-  const data = (await fetchJSON(
-    `${base}/overview/fees?excludeTotalDataChart=false`,
-  )) as Record<string, unknown>;
 
-  const protocols: ProtocolFeeRecord[] = Array.isArray(data.protocols)
-    ? (data.protocols as Record<string, unknown>[])
-        .map(parseProtocol)
+  // 3 parallel calls: fees (default), revenue, holders revenue
+  const [feesData, revenueData, holdersData] = await Promise.all([
+    fetchJSON(`${base}/overview/fees?excludeTotalDataChart=false`) as Promise<Record<string, unknown>>,
+    fetchJSON(`${base}/overview/fees?excludeTotalDataChart=true&dataType=dailyRevenue`)
+      .catch(() => null) as Promise<Record<string, unknown> | null>,
+    fetchJSON(`${base}/overview/fees?excludeTotalDataChart=true&dataType=dailyHoldersRevenue`)
+      .catch(() => null) as Promise<Record<string, unknown> | null>,
+  ]);
+
+  // Parse fee protocols (primary dataset)
+  const protocols: ProtocolFeeRecord[] = Array.isArray(feesData.protocols)
+    ? (feesData.protocols as Record<string, unknown>[])
+        .map(parseFeeProtocol)
         .sort((a, b) => (b.total24h ?? 0) - (a.total24h ?? 0))
     : [];
 
+  // Build revenue overlay lookup (by defillamaId → name → slug)
+  const revByKey = new Map<string, ReturnType<typeof parseRevenueOverlay>>();
+  if (revenueData && Array.isArray(revenueData.protocols)) {
+    for (const raw of revenueData.protocols as Record<string, unknown>[]) {
+      const r = parseRevenueOverlay(raw);
+      if (r.defillamaId) revByKey.set(`id:${r.defillamaId}`, r);
+      if (r.name) revByKey.set(`name:${r.name.toLowerCase()}`, r);
+      if (r.slug) revByKey.set(`slug:${r.slug.toLowerCase()}`, r);
+    }
+  }
+
+  // Build holders revenue overlay lookup
+  const holdByKey = new Map<string, ReturnType<typeof parseRevenueOverlay>>();
+  if (holdersData && Array.isArray(holdersData.protocols)) {
+    for (const raw of holdersData.protocols as Record<string, unknown>[]) {
+      const h = parseRevenueOverlay(raw);
+      if (h.defillamaId) holdByKey.set(`id:${h.defillamaId}`, h);
+      if (h.name) holdByKey.set(`name:${h.name.toLowerCase()}`, h);
+      if (h.slug) holdByKey.set(`slug:${h.slug.toLowerCase()}`, h);
+    }
+  }
+
+  // Merge revenue + holders data into each fee protocol
+  for (const p of protocols) {
+    // Match revenue data
+    const rev =
+      (p.defillamaId ? revByKey.get(`id:${p.defillamaId}`) : undefined) ??
+      revByKey.get(`name:${p.name.toLowerCase()}`) ??
+      revByKey.get(`slug:${p.slug.toLowerCase()}`);
+    if (rev) {
+      p.revenue24h = rev.total24h;
+      p.revenue7d = rev.total7d;
+      p.revenue30d = rev.total30d;
+    }
+
+    // Match holders revenue data
+    const hold =
+      (p.defillamaId ? holdByKey.get(`id:${p.defillamaId}`) : undefined) ??
+      holdByKey.get(`name:${p.name.toLowerCase()}`) ??
+      holdByKey.get(`slug:${p.slug.toLowerCase()}`);
+    if (hold) {
+      p.holdersRevenue24h = hold.total24h;
+    }
+
+    // Compute margin (take rate)
+    if (p.revenue24h != null && p.total24h != null && p.total24h > 0) {
+      p.margin = Math.round((p.revenue24h / p.total24h) * 10000) / 10000;
+    }
+  }
+
   // Trim chart to last 730 days to keep payload manageable
-  const fullChart = parseTotalDataChart(data.totalDataChart);
+  const fullChart = parseTotalDataChart(feesData.totalDataChart);
   const cutoff = Math.floor(Date.now() / 1000) - 730 * 86400;
   const totalDataChart = fullChart.filter((d) => d.date >= cutoff);
 
-  const totalFees24h = safeNum(data.total24h) ?? protocols.reduce((s, p) => s + (p.total24h ?? 0), 0);
-  const totalRevenue24h = safeNum(data.totalRevenue24h) ?? protocols.reduce((s, p) => s + (p.revenue24h ?? 0), 0);
-  const totalFees7d = safeNum(data.total7d) ?? protocols.reduce((s, p) => s + (p.total7d ?? 0), 0);
-  const totalRevenue7d = safeNum(data.totalRevenue7d) ?? protocols.reduce((s, p) => s + (p.revenue7d ?? 0), 0);
-  const totalFees30d = safeNum(data.total30d) ?? protocols.reduce((s, p) => s + (p.total30d ?? 0), 0);
-  const totalRevenue30d = safeNum(data.totalRevenue30d) ?? protocols.reduce((s, p) => s + (p.revenue30d ?? 0), 0);
+  const totalFees24h = safeNum(feesData.total24h) ?? protocols.reduce((s, p) => s + (p.total24h ?? 0), 0);
+  const totalRevenue24h = safeNum(revenueData?.total24h) ?? protocols.reduce((s, p) => s + (p.revenue24h ?? 0), 0);
+  const totalFees7d = safeNum(feesData.total7d) ?? protocols.reduce((s, p) => s + (p.total7d ?? 0), 0);
+  const totalRevenue7d = safeNum(revenueData?.total7d) ?? protocols.reduce((s, p) => s + (p.revenue7d ?? 0), 0);
+  const totalFees30d = safeNum(feesData.total30d) ?? protocols.reduce((s, p) => s + (p.total30d ?? 0), 0);
+  const totalRevenue30d = safeNum(revenueData?.total30d) ?? protocols.reduce((s, p) => s + (p.revenue30d ?? 0), 0);
 
   return NextResponse.json({
     type: "overview" as const,
@@ -266,7 +382,7 @@ async function handleChain(name: string): Promise<NextResponse<ChainResponse>> {
 
   const protocols: ProtocolFeeRecord[] = Array.isArray(data.protocols)
     ? (data.protocols as Record<string, unknown>[])
-        .map(parseProtocol)
+        .map(parseFeeProtocol)
         .sort((a, b) => (b.total24h ?? 0) - (a.total24h ?? 0))
     : [];
 

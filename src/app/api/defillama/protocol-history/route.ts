@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // ----------------------------------------------------------------
-// GET /api/defillama/protocol-history?protocols=aave,uniswap,hyperliquid
+// GET /api/defillama/protocol-history?protocols=aave,uniswap&breakdown=true
 //
 // Fetches historical fee/revenue data for a list of protocols
 // from DefiLlama's per-protocol summary endpoint.  Returns daily
 // fee and revenue history for each protocol, useful for building
 // per-protocol revenue time series charts.
+//
+// When breakdown=true, also parses totalDataChartBreakdown to
+// return per-chain or per-product fee breakdowns.
 //
 // Requests are made sequentially with a 200ms delay between each
 // to avoid overwhelming the upstream API.  Cached for 1 hour.
@@ -37,10 +40,16 @@ interface ProtocolHistoryEntry {
   revenue: number;
 }
 
+interface ChainBreakdownEntry {
+  date: number;
+  chains: Record<string, number>;
+}
+
 interface ProtocolHistoryRecord {
   name: string;
   slug: string;
   history: ProtocolHistoryEntry[];
+  breakdown: ChainBreakdownEntry[] | null;
 }
 
 interface ProtocolHistoryResponse {
@@ -93,6 +102,47 @@ function parseDataChart(raw: unknown): ProtocolHistoryEntry[] {
     .filter(Boolean) as ProtocolHistoryEntry[];
 }
 
+/** Parse totalDataChartBreakdown for per-chain/product fee splits. */
+function parseDataChartBreakdown(raw: unknown): ChainBreakdownEntry[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((entry: unknown) => {
+      // Format: [timestamp, {chainName: value, ...}]
+      if (Array.isArray(entry) && entry.length >= 2) {
+        const ts = Number(entry[0]);
+        const val = entry[1];
+        if (typeof val === "object" && val !== null) {
+          const chains: Record<string, number> = {};
+          for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+            const n = Number(v);
+            if (Number.isFinite(n) && n > 0) chains[k] = n;
+          }
+          if (Object.keys(chains).length > 0) {
+            return { date: ts, chains };
+          }
+        }
+      }
+      // Format: {date, chainName: value, ...}
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+        const obj = entry as Record<string, unknown>;
+        const ts = Number(obj.date ?? 0);
+        if (!ts) return null;
+        const chains: Record<string, number> = {};
+        for (const [k, v] of Object.entries(obj)) {
+          if (k === "date") continue;
+          const n = Number(v);
+          if (Number.isFinite(n) && n > 0) chains[k] = n;
+        }
+        if (Object.keys(chains).length > 0) {
+          return { date: ts, chains };
+        }
+      }
+      return null;
+    })
+    .filter(Boolean) as ChainBreakdownEntry[];
+}
+
 /** Delay helper for sequential requests. */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -104,6 +154,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = request.nextUrl;
     const protocolsParam = searchParams.get("protocols");
+    const withBreakdown = searchParams.get("breakdown") === "true";
 
     if (!protocolsParam) {
       return NextResponse.json(
@@ -152,8 +203,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
         const history = parseDataChart(chartData);
 
+        // Parse chain/product breakdown if requested
+        const breakdown = withBreakdown
+          ? parseDataChartBreakdown(data.totalDataChartBreakdown)
+          : null;
+
         if (history.length > 0) {
-          protocols.push({ name, slug, history });
+          protocols.push({
+            name,
+            slug,
+            history,
+            breakdown: breakdown && breakdown.length > 0 ? breakdown : null,
+          });
         }
       } catch (err) {
         // Log but continue with remaining protocols

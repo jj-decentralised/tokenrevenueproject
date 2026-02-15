@@ -312,14 +312,19 @@ interface MergedProtocol {
   category: string;
   categoryGroup: string;
   slug: string;
-  revenue24h: number;
-  revenue30d: number | null;
+  logo: string | null;
+  fees24h: number;
+  fees30d: number | null;
+  feesAnn: number;
+  protocolRevenue24h: number | null;
+  protocolRevenue30d: number | null;
+  holdersRevenue24h: number | null;
+  margin: number | null;
   revenueAnn: number;
   marketCap: number | null;
   psRatio: number | null;
   tvl: number | null;
   revenueTvl: number | null;
-  margin: number | null;
   change1d: number | null;
   change7d: number | null;
   hasToken: boolean;
@@ -328,6 +333,9 @@ interface MergedProtocol {
   revenueFdv: number | null;
   mcapFdvRatio: number | null;
   change1m: number | null;
+  // Backward compat aliases used in table display
+  revenue24h: number;
+  revenue30d: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -501,8 +509,8 @@ function TokenVsNonTokenSummary({ protocols }: { protocols: MergedProtocol[] }) 
     const tokenProjects = protocols.filter(p => p.hasToken);
     const nonTokenProjects = protocols.filter(p => !p.hasToken);
 
-    const tokenRev = tokenProjects.reduce((s, p) => s + p.revenue24h, 0);
-    const nonTokenRev = nonTokenProjects.reduce((s, p) => s + p.revenue24h, 0);
+    const tokenRev = tokenProjects.reduce((s, p) => s + p.fees24h, 0);
+    const nonTokenRev = nonTokenProjects.reduce((s, p) => s + p.fees24h, 0);
     const total = tokenRev + nonTokenRev;
 
     const median = (arr: number[]) => {
@@ -590,7 +598,7 @@ export default function Section6Protocols() {
 
     const protocols = fees.protocols;
     const tokens = coinGecko?.tokens ?? [];
-    const tvlProtocols = tvl?.topProtocols ?? [];
+    const tvlProtocols = tvl?.allProtocolsTVL ?? [];
     const earningsProtocols = earnings?.protocols ?? [];
 
     // Sort by total24h descending - show ALL protocols with revenue
@@ -665,15 +673,12 @@ export default function Section6Protocols() {
       // Match CoinGecko token - prefer mapping, then multi-strategy heuristic fallback
       let tokenMatch: typeof tokens[0] | undefined;
       if (mapping?.coinGeckoId) {
-        // Strategy 0: Direct mapping from PROTOCOL_TOKEN_MAP
         tokenMatch = tokenById.get(mapping.coinGeckoId.toLowerCase());
       }
       if (!tokenMatch) {
-        // Strategy 1: Reverse map from PROTOCOL_TOKEN_MAP coinGeckoId entries
         tokenMatch = tokenByCoinGeckoMapping.get(nameLower) || tokenByCoinGeckoMapping.get(displayLower);
       }
       if (!tokenMatch) {
-        // Strategy 2: Direct name/id/symbol matching (original logic)
         tokenMatch = tokenByNameLower.get(nameLower)
           || tokenById.get(nameLower)
           || tokenByNameLower.get(displayLower)
@@ -681,7 +686,6 @@ export default function Section6Protocols() {
           || tokenBySymbolLower.get(nameLower);
       }
       if (!tokenMatch) {
-        // Strategy 3: Strip common suffixes and retry
         const strippedName = stripSuffix(nameLower);
         const strippedDisplay = stripSuffix(displayLower);
         if (strippedName !== nameLower) {
@@ -696,13 +700,9 @@ export default function Section6Protocols() {
         }
       }
       if (!tokenMatch) {
-        // Strategy 4: Match CoinGecko symbol against DefiLlama slug
-        // e.g., protocol slug "aave" matches token symbol "AAVE"
         tokenMatch = tokenBySymbolLower.get(displayLower);
       }
       if (!tokenMatch) {
-        // Strategy 5: First word matching
-        // e.g., "curve-finance" -> first word "curve" matches "Curve DAO Token"
         const firstWordName = nameLower.split(/[\s-]+/)[0];
         const firstWordDisplay = displayLower.split(/[\s-]+/)[0];
         if (firstWordName && firstWordName.length > 2) {
@@ -715,20 +715,36 @@ export default function Section6Protocols() {
 
       const hasToken = mapping ? mapping.hasToken : (tokenMatch != null);
 
-      // Match TVL (O(1) lookup)
+      // Match TVL (O(1) lookup) — allProtocolsTVL includes mcap field
       const tvlMatch = tvlByName.get(nameLower) || tvlByName.get(displayLower);
 
       // Match earnings (O(1) lookup)
       const earningsMatch = earningsByName.get(nameLower) || earningsById.get(nameLower) || earningsByName.get(displayLower);
 
-      const revenueAnn = p.total24h * 365;
-      const marketCap = tokenMatch?.marketCap ?? null;
+      // Fees = total24h (what users pay), Protocol Revenue = revenue24h (what protocol keeps)
+      const fees24h = p.total24h;
+      const fees30d = p.total30d || null;
+      const feesAnn = fees24h * 365;
+
+      // Real protocol revenue from enriched API
+      const protocolRevenue24h = p.revenue24h ?? null;
+      const protocolRevenue30d = p.revenue30d ?? null;
+      const holdersRevenue24h = p.holdersRevenue24h ?? null;
+
+      // Use protocol revenue for P/S when available, fall back to total fees
+      const psBase = protocolRevenue24h != null ? protocolRevenue24h * 365 : feesAnn;
+      const revenueAnn = psBase; // best available annualized revenue
+
+      // Margin: enriched DL margin → TT earnings margin
+      const margin = p.margin ?? earningsMatch?.margin ?? null;
+
+      // Market cap: CoinGecko → DefiLlama TVL endpoint mcap fallback
+      const marketCap = tokenMatch?.marketCap ?? tvlMatch?.mcap ?? null;
       const tvlVal = tvlMatch?.tvl ?? null;
       const psRatio =
         marketCap != null && revenueAnn > 0 ? marketCap / revenueAnn : null;
       const revenueTvl =
-        tvlVal != null && tvlVal > 0 ? revenueAnn / tvlVal : null;
-      const margin = earningsMatch?.margin ?? null;
+        tvlVal != null && tvlVal > 0 ? feesAnn / tvlVal : null;
 
       const fdv = tokenMatch?.fullyDilutedValuation ?? null;
       const psFdv = fdv != null && revenueAnn > 0 ? fdv / revenueAnn : null;
@@ -742,14 +758,19 @@ export default function Section6Protocols() {
         category: p.category || "Other",
         categoryGroup: getCategoryGroup(p.category || "Other"),
         slug: toSlug(p.name),
-        revenue24h: p.total24h,
-        revenue30d: p.total30d || null,
+        logo: p.logo ?? null,
+        fees24h,
+        fees30d,
+        feesAnn,
+        protocolRevenue24h,
+        protocolRevenue30d,
+        holdersRevenue24h,
+        margin,
         revenueAnn,
         marketCap,
         psRatio,
         tvl: tvlVal,
         revenueTvl,
-        margin,
         change1d: p.change_1d,
         change7d: p.change_7d,
         hasToken,
@@ -758,6 +779,9 @@ export default function Section6Protocols() {
         revenueFdv,
         mcapFdvRatio,
         change1m: p.total30d && p.total24h ? ((p.total24h * 30 / p.total30d) - 1) * 100 : null,
+        // Backward compat aliases for table display
+        revenue24h: fees24h,
+        revenue30d: fees30d,
       };
     });
   }, [fees, coinGecko, tvl, earnings]);
@@ -869,7 +893,7 @@ export default function Section6Protocols() {
     return mergedProtocols
       .filter((p) => p.change7d != null)
       .sort((a, b) => Math.abs(b.change7d ?? 0) - Math.abs(a.change7d ?? 0))
-      .slice(0, 60);
+      .slice(0, 120);
   }, [mergedProtocols]);
 
   // CSV export data for table
@@ -879,16 +903,19 @@ export default function Section6Protocols() {
       protocol: p.displayName,
       has_token: p.hasToken,
       category: p.categoryGroup,
-      "revenue_24h": p.revenue24h,
-      "revenue_30d": p.revenue30d ?? "",
-      "revenue_ann": p.revenueAnn,
+      "fees_24h": p.fees24h,
+      "fees_30d": p.fees30d ?? "",
+      "fees_ann": p.feesAnn,
+      "protocol_revenue_24h": p.protocolRevenue24h ?? "",
+      "protocol_revenue_30d": p.protocolRevenue30d ?? "",
+      "holders_revenue_24h": p.holdersRevenue24h ?? "",
+      margin: p.margin ?? "",
       "market_cap": p.marketCap ?? "",
       "ps_ratio": p.psRatio ?? "",
       fdv: p.fdv ?? "",
       "ps_fdv": p.psFdv ?? "",
       tvl: p.tvl ?? "",
       "revenue_tvl": p.revenueTvl ?? "",
-      margin: p.margin ?? "",
       "change_1d": p.change1d ?? "",
       "change_7d": p.change7d ?? "",
       "change_30d": p.change1m ?? "",
@@ -1078,16 +1105,15 @@ export default function Section6Protocols() {
                     <th style={{ textAlign: "left", width: 36 }}>#</th>
                     <th style={{ textAlign: "left", minWidth: 140 }}>Protocol</th>
                     <th style={{ textAlign: "left", minWidth: 90 }}>Category</th>
+                    <th style={{ textAlign: "right", minWidth: 90 }}>Fees (24h)</th>
                     <th style={{ textAlign: "right", minWidth: 90 }}>Revenue (24h)</th>
-                    <th style={{ textAlign: "right", minWidth: 90 }}>Revenue (30d)</th>
+                    <th style={{ textAlign: "right", minWidth: 60 }}>Margin</th>
                     <th style={{ textAlign: "right", minWidth: 100 }}>Revenue (Ann.)</th>
                     <th style={{ textAlign: "right", minWidth: 100 }}>Market Cap</th>
                     <th style={{ textAlign: "right", minWidth: 70 }}>P/S</th>
                     <th style={{ textAlign: "right", minWidth: 90 }}>FDV</th>
-                    <th style={{ textAlign: "right", minWidth: 80 }}>P/S (FDV)</th>
                     <th style={{ textAlign: "right", minWidth: 90 }}>TVL</th>
-                    <th style={{ textAlign: "right", minWidth: 90 }}>Rev/TVL</th>
-                    <th style={{ textAlign: "right", minWidth: 60 }}>Margin</th>
+                    <th style={{ textAlign: "right", minWidth: 90 }}>Fees/TVL</th>
                     <th style={{ textAlign: "right", minWidth: 70 }}>24h</th>
                     <th style={{ textAlign: "right", minWidth: 70 }}>7d</th>
                     <th style={{ textAlign: "right", minWidth: 70 }}>30d</th>
@@ -1098,25 +1124,39 @@ export default function Section6Protocols() {
                     <tr key={p.name}>
                       <td style={{ textAlign: "left", color: "#999999" }}>{p.rank}</td>
                       <td style={{ textAlign: "left" }}>
-                        <a
-                          href={`/protocol/${p.slug}`}
-                          style={{
-                            color: "#111111",
-                            fontWeight: 600,
-                            textDecoration: "none",
-                          }}
-                          onMouseOver={(e) =>
-                            (e.currentTarget.style.color = "#0274B6")
-                          }
-                          onMouseOut={(e) =>
-                            (e.currentTarget.style.color = "#111111")
-                          }
-                        >
-                          {p.displayName}
-                        </a>
-                        {p.hasToken && (
-                          <span style={{ fontSize: "9px", color: "#3b82f6", marginLeft: 4, verticalAlign: "super" }}>●</span>
-                        )}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {p.logo && (
+                            <img
+                              src={p.logo}
+                              alt=""
+                              width={16}
+                              height={16}
+                              style={{ flexShrink: 0 }}
+                              loading="lazy"
+                            />
+                          )}
+                          <div>
+                            <a
+                              href={`/protocol/${p.slug}`}
+                              style={{
+                                color: "#111111",
+                                fontWeight: 600,
+                                textDecoration: "none",
+                              }}
+                              onMouseOver={(e) =>
+                                (e.currentTarget.style.color = "#0274B6")
+                              }
+                              onMouseOut={(e) =>
+                                (e.currentTarget.style.color = "#111111")
+                              }
+                            >
+                              {p.displayName}
+                            </a>
+                            {p.hasToken && (
+                              <span style={{ fontSize: "9px", color: "#3b82f6", marginLeft: 4, verticalAlign: "super" }}>●</span>
+                            )}
+                          </div>
+                        </div>
                         <div
                           style={{
                             fontSize: "10px",
@@ -1144,10 +1184,13 @@ export default function Section6Protocols() {
                         {p.categoryGroup}
                       </td>
                       <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                        {formatCompact(p.revenue24h)}
+                        {formatCompact(p.fees24h)}
                       </td>
                       <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                        {formatCompact(p.revenue30d)}
+                        {p.protocolRevenue24h != null ? formatCompact(p.protocolRevenue24h) : "\u2014"}
+                      </td>
+                      <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        {formatMargin(p.margin)}
                       </td>
                       <td
                         style={{
@@ -1168,18 +1211,12 @@ export default function Section6Protocols() {
                         {formatCompact(p.fdv)}
                       </td>
                       <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                        {formatRatio(p.psFdv)}
-                      </td>
-                      <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                         {formatCompact(p.tvl)}
                       </td>
                       <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                         {p.revenueTvl != null
                           ? `${(p.revenueTvl * 100).toFixed(1)}%`
                           : "\u2014"}
-                      </td>
-                      <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                        {formatMargin(p.margin)}
                       </td>
                       <td
                         style={{
@@ -1231,7 +1268,7 @@ export default function Section6Protocols() {
                   {filteredProtocols.length === 0 && (
                     <tr>
                       <td
-                        colSpan={16}
+                        colSpan={15}
                         style={{
                           textAlign: "center",
                           padding: "24px 0",
@@ -1638,6 +1675,22 @@ export default function Section6Protocols() {
 
         <DataSource sources={["DefiLlama (live)"]} />
       </Card>
+
+      {/* CTA to full analytics */}
+      <div style={{ textAlign: "center", padding: "8px 0" }}>
+        <a
+          href="#analytics"
+          style={{
+            fontSize: "13px",
+            fontWeight: 600,
+            color: "#0274B6",
+            textDecoration: "none",
+            letterSpacing: "0.02em",
+          }}
+        >
+          See full analytics with all {mergedProtocols.length}+ protocols &rarr;
+        </a>
+      </div>
     </section>
   );
 }

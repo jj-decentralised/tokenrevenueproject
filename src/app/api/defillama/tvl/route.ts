@@ -50,10 +50,20 @@ interface ProtocolTVLSummary {
   quarterlyTVL: QuarterlyTVLBucket[];
 }
 
+interface ProtocolTVLLite {
+  name: string;
+  slug: string;
+  category: string | null;
+  chains: string[];
+  currentTVL: number;
+  mcap: number | null;
+}
+
 interface TVLResponse {
   totalTVLCurrent: number;
   totalTVLQuarterly: QuarterlyTVLBucket[];
   topProtocols: ProtocolTVLSummary[];
+  allProtocolsTVL: ProtocolTVLLite[];
   fetchedAt: string;
 }
 
@@ -160,17 +170,29 @@ export async function GET(): Promise<NextResponse> {
     const totalTVLQuarterly = bucketize(totalDaily);
     const totalTVLCurrent = totalDaily.length > 0 ? totalDaily[totalDaily.length - 1].tvl : 0;
 
-    // ---- Top 20 protocols by TVL ----
+    // ---- All protocols by TVL ----
     const allProtocols = Array.isArray(protocolsRaw) ? protocolsRaw : [];
     const sorted = (allProtocols as Record<string, unknown>[])
       .filter((p) => {
         const tvl = safeNum(p.tvl);
         return tvl !== null && tvl > 0;
       })
-      .sort((a, b) => (Number(b.tvl) || 0) - (Number(a.tvl) || 0))
-      .slice(0, 20);
+      .sort((a, b) => (Number(b.tvl) || 0) - (Number(a.tvl) || 0));
 
-    const topProtocols: ProtocolTVLSummary[] = sorted.map((p) => {
+    // Top 20 get full quarterly detail (expensive processing)
+    const top20 = sorted.slice(0, 20);
+
+    // Lightweight array for ALL protocols with TVL > 0
+    const allProtocolsTVL: ProtocolTVLLite[] = sorted.map((p) => ({
+      name: String(p.name ?? ""),
+      slug: String(p.slug ?? ""),
+      category: p.category ? String(p.category) : null,
+      chains: Array.isArray(p.chains) ? p.chains.map(String) : [],
+      currentTVL: safeNum(p.tvl) ?? 0,
+      mcap: safeNum(p.mcap),
+    }));
+
+    const topProtocols: ProtocolTVLSummary[] = top20.map((p) => {
       const tvl = safeNum(p.tvl) ?? 0;
       const mcap = safeNum(p.mcap);
 
@@ -223,6 +245,7 @@ export async function GET(): Promise<NextResponse> {
       totalTVLCurrent,
       totalTVLQuarterly,
       topProtocols,
+      allProtocolsTVL,
       fetchedAt: new Date().toISOString(),
     };
 

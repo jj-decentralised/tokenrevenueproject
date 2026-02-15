@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
 import { PROTOCOL_TOKEN_MAP } from "@/lib/protocolTokenMap";
+import { buildUnifiedTokenList, UnifiedToken } from "@/lib/tokenMerge";
 
 // ============================================================
 // Types for live API responses
@@ -22,18 +23,36 @@ export interface LiveFeeOverview {
 export interface LiveProtocolFee {
   name: string;
   displayName: string;
+  slug: string;
   category: string;
+  logo: string | null;
+  defillamaId: string | null;
+  parentProtocol: string | null;
   chains: string[];
+  // Fees (what users pay)
   total24h: number;
   total7d: number;
   total30d: number;
   totalAllTime: number;
+  total1y: number | null;
+  average1y: number | null;
+  // Revenue (what protocol keeps — from dedicated revenue API call)
+  revenue24h: number | null;
+  revenue7d: number | null;
+  revenue30d: number | null;
+  // Holders revenue (buybacks, burns, staking distributions)
+  holdersRevenue24h: number | null;
+  // Derived
+  margin: number | null;
+  // Change metrics
   change_1d: number | null;
   change_7d: number | null;
   change_1m: number | null;
-  revenue24h?: number;
-  revenue7d?: number;
-  revenue30d?: number;
+  change_7dover7d: number | null;
+  change_30dover30d: number | null;
+  // Metadata
+  doublecounted: boolean;
+  methodology: Record<string, string> | null;
 }
 
 export interface LiveSentiment {
@@ -70,6 +89,14 @@ export interface LiveTVLData {
     tvl: number;
     category: string;
     chains: string[];
+  }[];
+  allProtocolsTVL: {
+    name: string;
+    slug: string;
+    tvl: number;
+    category: string;
+    chains: string[];
+    mcap: number | null;
   }[];
 }
 
@@ -189,6 +216,7 @@ export interface LiveData {
   coinGlass: LiveCoinGlassData | null;
   coinGecko: LiveCoinGeckoData | null;
   differentials: DataDifferential[];
+  unifiedTokens: UnifiedToken[];
   isLoading: boolean;
   isLive: boolean;
   lastUpdated: Date | null;
@@ -208,6 +236,7 @@ const defaultLiveData: LiveData = {
   coinGlass: null,
   coinGecko: null,
   differentials: [],
+  unifiedTokens: [],
   isLoading: true,
   isLive: false,
   lastUpdated: null,
@@ -319,24 +348,36 @@ async function fetchFees(): Promise<LiveFeeOverview | null> {
       },
     );
 
-    // Normalize protocols
+    // Normalize protocols (now includes revenue, holders, margin, enriched fields)
     const rawProtos = Array.isArray(raw.protocols) ? raw.protocols : [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const protocols: LiveProtocolFee[] = rawProtos.map((p: any) => ({
       name: String(p.name ?? ""),
-      displayName: String(p.name ?? p.displayName ?? ""),
+      displayName: String(p.displayName ?? p.name ?? ""),
+      slug: String(p.slug ?? ""),
       category: String(p.category ?? "Other"),
+      logo: p.logo ? String(p.logo) : null,
+      defillamaId: p.defillamaId != null ? String(p.defillamaId) : null,
+      parentProtocol: p.parentProtocol ? String(p.parentProtocol) : null,
       chains: Array.isArray(p.chains) ? p.chains.map(String) : [],
       total24h: Number(p.total24h ?? 0),
       total7d: Number(p.total7d ?? 0),
       total30d: Number(p.total30d ?? 0),
       totalAllTime: Number(p.totalAllTime ?? 0),
+      total1y: p.total1y != null ? Number(p.total1y) : null,
+      average1y: p.average1y != null ? Number(p.average1y) : null,
+      revenue24h: p.revenue24h != null ? Number(p.revenue24h) : null,
+      revenue7d: p.revenue7d != null ? Number(p.revenue7d) : null,
+      revenue30d: p.revenue30d != null ? Number(p.revenue30d) : null,
+      holdersRevenue24h: p.holdersRevenue24h != null ? Number(p.holdersRevenue24h) : null,
+      margin: p.margin != null ? Number(p.margin) : null,
       change_1d: p.change1d ?? p.change_1d ?? null,
       change_7d: p.change7d ?? p.change_7d ?? null,
       change_1m: p.change1m ?? p.change_1m ?? null,
-      revenue24h: Number(p.revenue24h ?? 0),
-      revenue7d: Number(p.revenue7d ?? 0),
-      revenue30d: Number(p.revenue30d ?? 0),
+      change_7dover7d: p.change7dover7d ?? null,
+      change_30dover30d: p.change30dover30d ?? null,
+      doublecounted: p.doublecounted === true,
+      methodology: p.methodology && typeof p.methodology === "object" ? p.methodology : null,
     }));
 
     return {
@@ -393,7 +434,20 @@ async function fetchTVL(): Promise<LiveTVLData | null> {
         }))
       : [];
 
-    return { totalDataChart, topProtocols };
+    // All protocols with TVL > 0 (lightweight, no quarterly detail)
+    const allProtocolsTVL = Array.isArray(raw.allProtocolsTVL)
+      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        raw.allProtocolsTVL.map((p: any) => ({
+          name: String(p.name ?? ""),
+          slug: String(p.slug ?? ""),
+          tvl: Number(p.currentTVL ?? p.tvl ?? 0),
+          category: String(p.category ?? ""),
+          chains: Array.isArray(p.chains) ? p.chains.map(String) : [],
+          mcap: p.mcap != null ? Number(p.mcap) : null,
+        }))
+      : [];
+
+    return { totalDataChart, topProtocols, allProtocolsTVL };
   } catch {
     return null;
   }
@@ -877,9 +931,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [fees, tokenTerminal]
   );
 
+  const unifiedTokens = useMemo(
+    () => buildUnifiedTokenList(fees, coinGecko, tvl, earnings),
+    [fees, coinGecko, tvl, earnings]
+  );
+
   return (
     <DataContext.Provider
-      value={{ fees, sentiment, tokenTerminal, tvl, etf, protocolHistory, activity, earnings, coinGlass, coinGecko, differentials, isLoading, isLive, lastUpdated, errors, refetch: fetchAll }}
+      value={{ fees, sentiment, tokenTerminal, tvl, etf, protocolHistory, activity, earnings, coinGlass, coinGecko, differentials, unifiedTokens, isLoading, isLive, lastUpdated, errors, refetch: fetchAll }}
     >
       {children}
     </DataContext.Provider>
@@ -947,12 +1006,11 @@ export function useProtocolLookup() {
       }
     }
 
-    // Index TVL
-    if (ctx.tvl?.topProtocols) {
-      for (const p of ctx.tvl.topProtocols) {
-        const key = p.name.toLowerCase();
-        if (map.has(key)) map.get(key)!.tvl = p;
-      }
+    // Index TVL — prefer allProtocolsTVL for comprehensive coverage (~2000+)
+    const tvlSource = ctx.tvl?.allProtocolsTVL ?? ctx.tvl?.topProtocols ?? [];
+    for (const p of tvlSource) {
+      const key = p.name.toLowerCase();
+      if (map.has(key)) map.get(key)!.tvl = p;
     }
 
     // Index earnings — use aliases for robust cross-source matching
