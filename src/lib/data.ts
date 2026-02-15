@@ -121,23 +121,41 @@ export const peComparisonData = [
   { name: "Nifty 50", pe: 21.8, category: "emerging", note: "Feb 2026" },
   { name: "Hang Seng", pe: 10.5, category: "emerging", note: "Feb 2026" },
   { name: "KOSPI", pe: 14.2, category: "emerging", note: "Feb 2026" },
-  // Early-stage tech comparisons
-  { name: "Dot-com era (2000)", pe: 150, category: "tech", note: "NASDAQ peak P/E" },
+  // Dot-com era individual stocks (1999-2000 peak)
+  { name: "Apple (2000)", pe: 40, category: "tech", note: "~$22B mcap / ~$601M earnings. Modest by dot-com standards — seen as struggling hardware co. Source: Apple 10-K" },
+  { name: "Intel (2000)", pe: 50, category: "tech", note: "~$509B mcap / ~$10.5B earnings. One of the 'Four Horsemen'. Source: MacroTrends, CFA Institute" },
+  { name: "Microsoft (2000)", pe: 75, category: "tech", note: "~$600B mcap / ~$7.8B earnings. Took 14 years to recover peak price. Source: Seeking Alpha, MacroTrends" },
+  { name: "Dell (2000)", pe: 97, category: "tech", note: "One of the 'Four Horsemen'. FY2000 earnings ~$1.67B. Source: Bloomberg, SEC 10-K" },
+  { name: "S&P 500 IT Sector (2000)", pe: 73, category: "tech", note: "Tech sector within S&P 500 at March 2000 peak. Source: Harding Loevner" },
   { name: "SaaS 2021 peak", pe: 120, category: "tech", note: "BVP Cloud Index peak" },
+  { name: "Oracle (2000)", pe: 153, category: "tech", note: "$153x trailing P/E, March 2000. Source: WSJ (Jeremy Siegel), Kiplinger" },
+  { name: "Qualcomm (2000)", pe: 167, category: "tech", note: "Rose 2,619% in 1999 alone. Source: WSJ (Jeremy Siegel)" },
+  { name: "Cisco (2000)", pe: 200, category: "tech", note: "~$555B mcap / ~$2.7B earnings. World's most valuable company briefly. Fell 88%. Source: MacroTrends, CNBC" },
   { name: "Crypto 2021 peak", pe: 350, category: "tech", note: "~$2.2T mcap / ~$6.3B native rev" },
+  { name: "Yahoo (2000)", pe: 2000, category: "tech", note: "~$125B mcap / ~$61M earnings. Most extreme P/E of profitable dot-com stocks. Source: Airtree, Wikipedia" },
 ];
 
 // Historical P/S for early-stage tech comparison
+// Sources: MacroTrends, Jay Ritter (U of Florida) IPO data, BVP Cloud Index, GuruFocus, SEC filings
 export const earlyTechPSComparison = [
-  { name: "Dot-com avg (1999-2000)", ps: 180, year: 2000, category: "Historical tech" },
-  { name: "Amazon (1999)", ps: 25, year: 1999, category: "Historical tech" },
-  { name: "Salesforce (2004 IPO)", ps: 15, year: 2004, category: "Historical tech" },
-  { name: "Snowflake (2020 IPO)", ps: 175, year: 2020, category: "2020-21 tech" },
+  // Historical tech (dot-com era)
+  { name: "Intel (2000 peak)", ps: 15, year: 2000, category: "Historical tech" },
+  { name: "Salesforce (2004 IPO)", ps: 18, year: 2004, category: "Historical tech" },
+  { name: "Amazon (1999 peak)", ps: 22, year: 1999, category: "Historical tech" },
+  { name: "Microsoft (2000 peak)", ps: 30, year: 2000, category: "Historical tech" },
+  { name: "Cisco (2000 peak)", ps: 38, year: 2000, category: "Historical tech" },
+  { name: "Dot-com tech IPO avg (1999-2000)", ps: 48, year: 2000, category: "Historical tech" },
+  // 2020-21 tech peaks
+  { name: "Tesla (2021 peak)", ps: 30, year: 2021, category: "2020-21 tech" },
   { name: "Palantir (2021 peak)", ps: 45, year: 2021, category: "2020-21 tech" },
-  { name: "Cloudflare (2021 peak)", ps: 100, year: 2021, category: "2020-21 tech" },
-  { name: "Crypto overall (2021)", ps: 91, year: 2021, category: "Crypto" },
-  { name: "Crypto overall (2025)", ps: 64, year: 2025, category: "Crypto" },
+  { name: "Shopify (2021 peak)", ps: 60, year: 2021, category: "2020-21 tech" },
+  { name: "Zoom (2020 peak)", ps: 72, year: 2020, category: "2020-21 tech" },
+  { name: "Cloudflare (2021 peak)", ps: 110, year: 2021, category: "2020-21 tech" },
+  { name: "Snowflake (2020 IPO)", ps: 175, year: 2020, category: "2020-21 tech" },
+  // Crypto
   { name: "Crypto DeFi (2025)", ps: 17, year: 2025, category: "Crypto" },
+  { name: "Crypto overall (2025)", ps: 64, year: 2025, category: "Crypto" },
+  { name: "Crypto overall (2021)", ps: 91, year: 2021, category: "Crypto" },
   { name: "Crypto L1s (2025)", ps: 7300, year: 2025, category: "Crypto" },
 ];
 

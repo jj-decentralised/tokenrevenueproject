@@ -110,12 +110,12 @@ function PETooltip({ active, payload }: CustomTooltipProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const item = (data as any)?.payload;
   return (
-    <div className="bg-white border border-slate-200 rounded-lg shadow-lg p-3 text-sm max-w-xs">
+    <div className="bg-white border border-slate-200 rounded-lg shadow-lg p-3 text-sm max-w-sm">
       <p className="font-semibold text-slate-800 mb-1">{item?.name}</p>
       <p className="text-slate-700">
         P/E: <span className="font-bold">{item?.pe?.toLocaleString()}x</span>
       </p>
-      {item?.note && <p className="text-slate-500 text-xs mt-1">{item.note}</p>}
+      {item?.note && <p className="text-slate-500 text-xs mt-1 leading-relaxed">{item.note}</p>}
     </div>
   );
 }
@@ -160,17 +160,37 @@ const PS_CATEGORY_COLORS: Record<string, string> = {
 export default function Section1Revenue() {
   const ctx = useDataContext();
 
-  // ---- Quarterly revenue data: live or static ----
+  // ---- Quarterly revenue data: merge static (back to Q1 2020) with live ----
   const quarterlyRevenueData = useMemo(() => {
     if (ctx.fees?.totalDataChart && ctx.fees.totalDataChart.length > 0) {
-      return aggregateToQuarterly(ctx.fees.totalDataChart).map((d) => ({
-        period: d.period,
-        totalRevenue: d.value / 1e9, // convert to $B
-        // Live API only gives total fees; estimate ex-stablecoins as ~65% of total
-        exStablecoins: (d.value / 1e9) * 0.65,
-        onChain: (d.value / 1e9) * 0.35,
-        offChain: (d.value / 1e9) * 0.65,
-      }));
+      const liveQuarters = aggregateToQuarterly(ctx.fees.totalDataChart);
+      const liveMap = new Map(
+        liveQuarters.map((d) => [
+          d.period,
+          {
+            period: d.period,
+            totalRevenue: d.value / 1e9,
+            exStablecoins: (d.value / 1e9) * 0.65,
+            onChain: (d.value / 1e9) * 0.35,
+            offChain: (d.value / 1e9) * 0.65,
+          },
+        ])
+      );
+
+      // Start with all static quarters, override with live data where available
+      const merged = staticQuarterlyData.map((sq) => {
+        const live = liveMap.get(sq.period);
+        return live ?? sq;
+      });
+
+      // Append any live quarters that are beyond the static data
+      for (const [period, data] of liveMap) {
+        if (!staticQuarterlyData.some((sq) => sq.period === period)) {
+          merged.push(data);
+        }
+      }
+
+      return merged;
     }
     return staticQuarterlyData;
   }, [ctx.fees]);
@@ -344,11 +364,12 @@ export default function Section1Revenue() {
   }, [ctx.fees, ctx.sentiment, ctx.coinGecko]);
 
   // ---- PE comparison sorted & filtered ----
+  // Exclude extreme outliers (L1 7300x, Crypto 2021 350x, Yahoo 2000x) for chart readability
   const peDataMain = useMemo(
     () =>
       peComparisonData
         .filter(
-          (d) => d.name !== "L1 Blockchains" && d.name !== "Crypto 2021 peak"
+          (d) => d.name !== "L1 Blockchains" && d.name !== "Crypto 2021 peak" && d.name !== "Yahoo (2000)"
         )
         .sort((a, b) => a.pe - b.pe),
     [peComparisonData]
@@ -462,7 +483,7 @@ export default function Section1Revenue() {
         <Card>
           <ChartExport
             data={ctx.coinGecko.historicalMarketCap.map((d) => ({
-              date: new Date(d.date * 1000).toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+              date: new Date(d.date).toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
               marketCap: d.marketCap / 1e12,
             }))}
             filename="crypto-total-market-cap-trend"
@@ -476,7 +497,7 @@ export default function Section1Revenue() {
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart
                   data={ctx.coinGecko.historicalMarketCap.map((d) => ({
-                    date: new Date(d.date * 1000).toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+                    date: new Date(d.date).toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
                     marketCap: d.marketCap / 1e12,
                   }))}
                   margin={{ top: 10, right: 20, left: 10, bottom: 0 }}
@@ -827,9 +848,9 @@ export default function Section1Revenue() {
           </p>
 
           {ctx.isLoading ? (
-            <ChartSkeleton height="h-[480px]" />
+            <ChartSkeleton height="h-[700px]" />
           ) : (
-            <div className="h-[480px] w-full">
+            <div className="h-[700px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={peDataMain}
@@ -846,7 +867,7 @@ export default function Section1Revenue() {
                     tick={{ fontSize: 11, fill: "#94a3b8" }}
                     tickLine={false}
                     axisLine={{ stroke: "#e2e8f0" }}
-                    domain={[0, 160]}
+                    domain={[0, 220]}
                     tickFormatter={(v: number) => `${v}x`}
                   />
                   <YAxis
@@ -885,14 +906,25 @@ export default function Section1Revenue() {
           )}
         </ChartExport>
 
-        {/* Callout for L1 outlier */}
-        <div className="mt-4 flex items-start gap-3 bg-slate-50 rounded-lg p-4">
-          <div className="flex-shrink-0 mt-0.5 w-3 h-3 rounded-full bg-blue-500" />
-          <div className="text-sm text-slate-700">
-            <span className="font-semibold">L1 Blockchains: 7,300x P/E</span>{" "}
-            -- excluded from chart for scale. L1 fee revenue is tiny relative to
-            market caps because value accrues through MEV, monetary premium, and
-            security budget -- not protocol fees alone.
+        {/* Callout for outliers */}
+        <div className="mt-4 space-y-2">
+          <div className="flex items-start gap-3 bg-slate-50 rounded-lg p-4">
+            <div className="flex-shrink-0 mt-0.5 w-3 h-3 rounded-full bg-blue-500" />
+            <div className="text-sm text-slate-700">
+              <span className="font-semibold">L1 Blockchains: 7,300x P/E</span>{" "}
+              -- excluded from chart for scale. L1 fee revenue is tiny relative to
+              market caps because value accrues through MEV, monetary premium, and
+              security budget -- not protocol fees alone.
+            </div>
+          </div>
+          <div className="flex items-start gap-3 bg-amber-50 rounded-lg p-4">
+            <div className="flex-shrink-0 mt-0.5 w-3 h-3 rounded-full" style={{ backgroundColor: CHART_COLORS.secondary }} />
+            <div className="text-sm text-slate-700">
+              <span className="font-semibold">Yahoo (2000): 2,000x P/E</span>{" "}
+              -- excluded for scale. $125B market cap on just $61M in earnings. The most extreme P/E of any profitable dot-com stock.
+              {" "}<span className="font-semibold">Crypto 2021 peak: 350x P/E</span>{" "}
+              -- $2.2T market cap / $6.3B native revenue at the height of the bull market.
+            </div>
           </div>
         </div>
 
@@ -935,6 +967,9 @@ export default function Section1Revenue() {
             "WorldPERatio",
             "S&P Global",
             "BVP Cloud Index",
+            "MacroTrends (dot-com era)",
+            "WSJ / Jeremy Siegel (March 2000)",
+            "SEC 10-K filings",
           ]}
         />
       </Card>
@@ -948,14 +983,14 @@ export default function Section1Revenue() {
         >
           <p className="text-sm text-slate-500 mb-6">
             How does crypto&apos;s current valuation compare to other nascent tech
-            sectors at similar stages? Crypto DeFi (17x P/S) trades closer to
-            mature SaaS than to dot-com-era or 2020-21 peak valuations.
+            sectors at similar stages? Crypto DeFi (17x P/S) trades at a discount
+            to most dot-com-era tech stocks and far below 2020-21 peak valuations.
           </p>
 
           {ctx.isLoading ? (
-            <ChartSkeleton height="h-[400px]" />
+            <ChartSkeleton height="h-[560px]" />
           ) : (
-            <div className="h-[400px] w-full">
+            <div className="h-[560px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={psData}
@@ -1039,8 +1074,11 @@ export default function Section1Revenue() {
 
         <DataSource
           sources={[
+            "MacroTrends (historical P/S)",
+            "Jay Ritter, U of Florida (IPO data)",
+            "GuruFocus (peak P/S ratios)",
+            "SEC 10-K filings",
             "BVP Cloud Index",
-            "Jay Ritter IPO Data",
             "CoinGecko (live)",
           ]}
         />
@@ -1066,8 +1104,10 @@ export default function Section1Revenue() {
         </InsightBox>
         <InsightBox title="Crypto's Dot-com Moment?" type="insight">
           <p>
-            Crypto&apos;s overall 64x P/S is rich but below dot-com peaks (180x)
-            and 2020-21 SaaS highs (Snowflake at 175x). Unlike the dot-com era,
+            Crypto&apos;s overall 64x P/S exceeds the dot-com tech IPO average (48x,
+            per Jay Ritter) but is well below 2020-21 peaks (Snowflake 175x, Zoom 72x).
+            Critically, crypto DeFi at <strong>17x P/S</strong> trades below even
+            Intel (2000) at 15x and Salesforce&apos;s IPO at 18x. Unlike the dot-com era,
             crypto protocols are generating{" "}
             <strong>real, growing revenue</strong> -- $56B annualized and
             accelerating.

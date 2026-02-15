@@ -24,6 +24,7 @@ import { findProtocolMapping } from "@/lib/protocolTokenMap";
 import { ChartExport } from "@/components/ui/ChartExport";
 import {
   sectorBreakdownTimeSeries,
+  annualRevenueData,
   h1_2025_sectorBreakdown,
   exchangeRevenueHistory,
   stablecoinRevenueBreakdown,
@@ -413,6 +414,9 @@ interface SectorProtocol {
   revenueAnn: number;
   marketCap: number | null;
   fdv: number | null;
+  ps: number | null; // P/S = FDV / annualized revenue
+  volume24h: number | null;
+  takeRate: number | null; // fees / volume (where applicable)
   earnings: number | null;
   margin: number | null;
   change7d: number | null;
@@ -428,12 +432,14 @@ interface SectorSummary {
   totalFdv: number;
   totalMcap: number;
   protocolCount: number;
+  avgPS: number | null;
 }
 
 function SectorDrillDown({
   protocols,
   coinGeckoTokens,
   earningsProtocols,
+  tvlProtocols,
   topN,
 }: {
   protocols: LiveProtocolFee[];
@@ -454,9 +460,18 @@ function SectorDrillDown({
     latestEarnings: number;
     margin: number;
   }>;
+  tvlProtocols: Array<{
+    name: string;
+    slug: string;
+    mcap: number | null;
+    fdv: number | null;
+  }>;
   topN: number;
 }) {
   const [expandedSectors, setExpandedSectors] = useState<Set<string>>(new Set());
+  const [scatterSector, setScatterSector] = useState<string | null>(null);
+  const [scatterXMetric, setScatterXMetric] = useState<"revenueAnn" | "fdv" | "volume24h">("revenueAnn");
+  const [scatterYMetric, setScatterYMetric] = useState<"ps" | "margin" | "takeRate" | "fdv">("ps");
 
   const sectorData = useMemo(() => {
     // Build lookup maps
@@ -475,6 +490,13 @@ function SectorDrillDown({
         earningsByKey.set(alias.toLowerCase(), e);
       }
     }
+    // Build TVL lookup for FDV/mcap fallback
+    const tvlByName = new Map<string, (typeof tvlProtocols)[0]>();
+    const tvlBySlug = new Map<string, (typeof tvlProtocols)[0]>();
+    for (const t of tvlProtocols) {
+      tvlByName.set(t.name.toLowerCase(), t);
+      tvlBySlug.set(t.slug.toLowerCase(), t);
+    }
 
     // Group protocols by sector
     const sectorMap = new Map<string, SectorProtocol[]>();
@@ -486,17 +508,40 @@ function SectorDrillDown({
         ? tokenById.get(mapping.coinGeckoId.toLowerCase())
         : (tokenByName.get(p.name.toLowerCase()) || tokenById.get(p.name.toLowerCase()) || tokenByName.get((p.displayName || "").toLowerCase()));
       const earningsMatch = earningsByKey.get(p.name.toLowerCase()) || earningsByKey.get((p.displayName || "").toLowerCase());
+      const tvlMatch = tvlByName.get(p.name.toLowerCase()) || tvlBySlug.get(p.name.toLowerCase().replace(/\s+/g, "-"));
+
+      // FDV: CoinGecko first, then DefiLlama TVL fallback
+      const fdv = tokenMatch?.fullyDilutedValuation ?? tvlMatch?.fdv ?? null;
+      const marketCap = tokenMatch?.marketCap ?? tvlMatch?.mcap ?? null;
+      const revenueAnn = p.total24h * 365;
+      const psNumerator = fdv ?? marketCap;
+      const ps = psNumerator != null && revenueAnn > 0 ? psNumerator / revenueAnn : null;
+
+      // Volume and take rate (for DEXes/Exchanges)
+      const volume24h = tokenMatch?.totalVolume24h ?? null;
+      const takeRate = volume24h != null && volume24h > 0 && p.total24h > 0
+        ? (p.total24h / volume24h) : null;
+
+      // Margin: prefer enriched data from API, fallback to TokenTerminal
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const protocolRevenue = (p as any).revenue24h as number | undefined;
+      const protocolMargin = protocolRevenue != null && protocolRevenue > 0 && p.total24h > 0
+        ? protocolRevenue / p.total24h
+        : earningsMatch?.margin ?? null;
 
       const sp: SectorProtocol = {
         name: p.name,
         displayName: p.displayName || p.name,
         revenue24h: p.total24h,
         revenue30d: p.total30d || 0,
-        revenueAnn: p.total24h * 365,
-        marketCap: tokenMatch?.marketCap ?? null,
-        fdv: tokenMatch?.fullyDilutedValuation ?? null,
+        revenueAnn,
+        marketCap,
+        fdv,
+        ps,
+        volume24h,
+        takeRate,
         earnings: earningsMatch?.latestEarnings ?? null,
-        margin: earningsMatch?.margin ?? null,
+        margin: protocolMargin,
         change7d: p.change_7d,
         sector,
       };
@@ -526,22 +571,30 @@ function SectorDrillDown({
       // Apply topN
       const displayed = topN > 0 ? protos.slice(0, topN) : protos;
 
+      const totalRevAnn = displayed.reduce((s, p) => s + p.revenueAnn, 0);
+      const totalFdv = displayed.reduce((s, p) => s + (p.fdv ?? 0), 0);
+      const protosWithPS = displayed.filter((p) => p.ps != null && p.ps > 0 && p.ps < 10000);
+      const avgPS = protosWithPS.length > 0
+        ? protosWithPS.reduce((s, p) => s + p.ps!, 0) / protosWithPS.length
+        : totalRevAnn > 0 && totalFdv > 0 ? totalFdv / totalRevAnn : null;
+
       summaries.push({
         sector,
         sectorLabel: sectorLabelMap[sector] || sector,
         color: SECTOR_COLORS[sector] || "#94a3b8",
         protocols: displayed,
-        totalRevAnn: displayed.reduce((s, p) => s + p.revenueAnn, 0),
-        totalFdv: displayed.reduce((s, p) => s + (p.fdv ?? 0), 0),
+        totalRevAnn,
+        totalFdv,
         totalMcap: displayed.reduce((s, p) => s + (p.marketCap ?? 0), 0),
         protocolCount: protos.length,
+        avgPS,
       });
     }
 
     // Sort sectors by total revenue desc
     summaries.sort((a, b) => b.totalRevAnn - a.totalRevAnn);
     return summaries;
-  }, [protocols, coinGeckoTokens, earningsProtocols, topN]);
+  }, [protocols, coinGeckoTokens, earningsProtocols, tvlProtocols, topN]);
 
   const toggleSector = (sector: string) => {
     setExpandedSectors((prev) => {
@@ -641,73 +694,186 @@ function SectorDrillDown({
           {/* Expanded protocol table */}
           {expandedSectors.has(sec.sector) && (
             <div style={{ backgroundColor: "#fafafa", borderBottom: "1px solid #e8e8e8" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
-                <thead>
-                  <tr style={{ borderBottom: "1px solid #d4d4d4" }}>
-                    <th style={{ textAlign: "left", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Protocol</th>
-                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Rev (24h)</th>
-                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Rev (30d)</th>
-                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Rev (Ann.)</th>
-                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Market Cap</th>
-                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>FDV</th>
-                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Earnings</th>
-                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Margin</th>
-                    <th style={{ textAlign: "right", padding: "6px 8px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>7d</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sec.protocols.map((p, idx) => (
-                    <tr
-                      key={p.name}
-                      style={{
-                        borderBottom: "1px solid #f0f0f0",
-                        backgroundColor: idx % 2 === 0 ? "#fafafa" : "#ffffff",
-                      }}
-                    >
-                      <td style={{ padding: "6px 8px", fontWeight: 600, color: "#111111" }}>
-                        <a
-                          href={`/protocol/${p.name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}`}
-                          style={{ color: "#111111", textDecoration: "none" }}
-                          onMouseOver={(e) => (e.currentTarget.style.color = "#0274B6")}
-                          onMouseOut={(e) => (e.currentTarget.style.color = "#111111")}
-                        >
-                          {p.displayName}
-                        </a>
-                      </td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", fontVariantNumeric: "tabular-nums" }}>
-                        {formatCompactValue(p.revenue24h)}
-                      </td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", fontVariantNumeric: "tabular-nums" }}>
-                        {formatCompactValue(p.revenue30d)}
-                      </td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
-                        {formatCompactValue(p.revenueAnn)}
-                      </td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", fontVariantNumeric: "tabular-nums" }}>
-                        {formatCompactValue(p.marketCap)}
-                      </td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", fontVariantNumeric: "tabular-nums" }}>
-                        {formatCompactValue(p.fdv)}
-                      </td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", fontVariantNumeric: "tabular-nums" }}>
-                        {formatCompactValue(p.earnings)}
-                      </td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", fontVariantNumeric: "tabular-nums", color: p.margin != null && p.margin >= 0 ? "#2e7d32" : "#9e2b25" }}>
-                        {p.margin != null ? `${(p.margin * 100).toFixed(0)}%` : "\u2014"}
-                      </td>
-                      <td style={{
-                        textAlign: "right",
-                        padding: "6px 8px",
-                        fontVariantNumeric: "tabular-nums",
-                        fontWeight: 500,
-                        color: p.change7d == null ? "#999999" : p.change7d >= 0 ? "#2e7d32" : "#9e2b25",
-                      }}>
-                        {formatPctValue(p.change7d)}
-                      </td>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", minWidth: 900 }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid #d4d4d4" }}>
+                      {["Protocol", "Fees (24h)", "Fees (30d)", "Fees (Ann.)", "FDV", "P/S", "Volume (24h)", "Take Rate", "Margin", "7d"].map((h) => (
+                        <th key={h} style={{ textAlign: h === "Protocol" ? "left" : "right", padding: "6px 6px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999", whiteSpace: "nowrap" }}>{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {sec.protocols.map((p, idx) => (
+                      <tr
+                        key={p.name}
+                        style={{
+                          borderBottom: "1px solid #f0f0f0",
+                          backgroundColor: idx % 2 === 0 ? "#fafafa" : "#ffffff",
+                        }}
+                      >
+                        <td style={{ padding: "6px 6px", fontWeight: 600, color: "#111111" }}>
+                          <a
+                            href={`/protocol/${p.name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}`}
+                            style={{ color: "#111111", textDecoration: "none" }}
+                            onMouseOver={(e) => (e.currentTarget.style.color = "#0274B6")}
+                            onMouseOut={(e) => (e.currentTarget.style.color = "#111111")}
+                          >
+                            {p.displayName}
+                          </a>
+                        </td>
+                        <td style={{ textAlign: "right", padding: "6px 6px", fontVariantNumeric: "tabular-nums" }}>
+                          {formatCompactValue(p.revenue24h)}
+                        </td>
+                        <td style={{ textAlign: "right", padding: "6px 6px", fontVariantNumeric: "tabular-nums" }}>
+                          {formatCompactValue(p.revenue30d)}
+                        </td>
+                        <td style={{ textAlign: "right", padding: "6px 6px", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+                          {formatCompactValue(p.revenueAnn)}
+                        </td>
+                        <td style={{ textAlign: "right", padding: "6px 6px", fontVariantNumeric: "tabular-nums" }}>
+                          {formatCompactValue(p.fdv)}
+                        </td>
+                        <td style={{ textAlign: "right", padding: "6px 6px", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: p.ps != null ? "#111111" : "#999999" }}>
+                          {p.ps != null ? `${p.ps.toFixed(1)}x` : "\u2014"}
+                        </td>
+                        <td style={{ textAlign: "right", padding: "6px 6px", fontVariantNumeric: "tabular-nums" }}>
+                          {formatCompactValue(p.volume24h)}
+                        </td>
+                        <td style={{ textAlign: "right", padding: "6px 6px", fontVariantNumeric: "tabular-nums", color: p.takeRate != null ? "#111111" : "#999999" }}>
+                          {p.takeRate != null ? `${(p.takeRate * 100).toFixed(2)}%` : "\u2014"}
+                        </td>
+                        <td style={{ textAlign: "right", padding: "6px 6px", fontVariantNumeric: "tabular-nums", color: p.margin != null && p.margin >= 0 ? "#2e7d32" : "#9e2b25" }}>
+                          {p.margin != null ? `${(p.margin * 100).toFixed(0)}%` : "\u2014"}
+                        </td>
+                        <td style={{
+                          textAlign: "right",
+                          padding: "6px 6px",
+                          fontVariantNumeric: "tabular-nums",
+                          fontWeight: 500,
+                          color: p.change7d == null ? "#999999" : p.change7d >= 0 ? "#2e7d32" : "#9e2b25",
+                        }}>
+                          {formatPctValue(p.change7d)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Scatter plot button */}
+              <div style={{ padding: "8px", borderTop: "1px solid #e8e8e8" }}>
+                <button
+                  onClick={() => setScatterSector(scatterSector === sec.sector ? null : sec.sector)}
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    padding: "5px 12px",
+                    border: "1px solid",
+                    borderColor: scatterSector === sec.sector ? "#111111" : "#d4d4d4",
+                    backgroundColor: scatterSector === sec.sector ? "#111111" : "#ffffff",
+                    color: scatterSector === sec.sector ? "#ffffff" : "#666666",
+                    borderRadius: 0,
+                    cursor: "pointer",
+                  }}
+                >
+                  {scatterSector === sec.sector ? "Hide" : "Show"} Scatter Plot
+                </button>
+              </div>
+
+              {/* Scatter plot */}
+              {scatterSector === sec.sector && (
+                <div style={{ padding: "8px" }}>
+                  <div style={{ display: "flex", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
+                    <div>
+                      <span style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", color: "#999999", marginRight: 6 }}>X-Axis:</span>
+                      {([["revenueAnn", "Revenue (Ann.)"], ["fdv", "FDV"], ["volume24h", "Volume"]] as const).map(([key, label]) => (
+                        <button
+                          key={key}
+                          onClick={() => setScatterXMetric(key)}
+                          style={{
+                            fontSize: "10px", fontWeight: 600, padding: "3px 8px",
+                            border: "1px solid", borderColor: scatterXMetric === key ? "#111" : "#d4d4d4",
+                            backgroundColor: scatterXMetric === key ? "#111" : "#fff",
+                            color: scatterXMetric === key ? "#fff" : "#666",
+                            borderRadius: 0, cursor: "pointer", marginRight: 2,
+                          }}
+                        >{label}</button>
+                      ))}
+                    </div>
+                    <div>
+                      <span style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", color: "#999999", marginRight: 6 }}>Y-Axis:</span>
+                      {([["ps", "P/S"], ["margin", "Margin"], ["takeRate", "Take Rate"], ["fdv", "FDV"]] as const).map(([key, label]) => (
+                        <button
+                          key={key}
+                          onClick={() => setScatterYMetric(key)}
+                          style={{
+                            fontSize: "10px", fontWeight: 600, padding: "3px 8px",
+                            border: "1px solid", borderColor: scatterYMetric === key ? "#111" : "#d4d4d4",
+                            backgroundColor: scatterYMetric === key ? "#111" : "#fff",
+                            color: scatterYMetric === key ? "#fff" : "#666",
+                            borderRadius: 0, cursor: "pointer", marginRight: 2,
+                          }}
+                        >{label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ height: 360 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={sec.protocols
+                          .filter((p) => {
+                            const xVal = p[scatterXMetric];
+                            const yVal = p[scatterYMetric];
+                            return xVal != null && (xVal as number) > 0 && yVal != null && (yVal as number) > 0;
+                          })
+                          .sort((a, b) => ((b[scatterXMetric] as number) || 0) - ((a[scatterXMetric] as number) || 0))
+                          .slice(0, 30)
+                          .map((p) => ({
+                            name: p.displayName.length > 12 ? p.displayName.slice(0, 12) + "..." : p.displayName,
+                            x: p[scatterXMetric] as number,
+                            y: p[scatterYMetric] as number,
+                          }))
+                        }
+                        layout="vertical"
+                        margin={{ top: 5, right: 30, left: 5, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                        <XAxis
+                          type="number"
+                          tickFormatter={(v: number) => {
+                            if (scatterYMetric === "margin" || scatterYMetric === "takeRate") return `${(v * 100).toFixed(0)}%`;
+                            if (scatterYMetric === "ps") return `${v.toFixed(0)}x`;
+                            return formatCompactValue(v);
+                          }}
+                          tick={{ fontSize: 10, fill: "#94a3b8" }}
+                          tickLine={false}
+                          axisLine={{ stroke: "#e2e8f0" }}
+                        />
+                        <YAxis
+                          dataKey="name"
+                          type="category"
+                          width={100}
+                          tick={{ fontSize: 10, fill: "#64748b" }}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <Tooltip
+                          formatter={(value: number) => {
+                            if (scatterYMetric === "margin" || scatterYMetric === "takeRate") return [`${(value * 100).toFixed(2)}%`];
+                            if (scatterYMetric === "ps") return [`${value.toFixed(1)}x`];
+                            return [formatCompactValue(value)];
+                          }}
+                          contentStyle={{ fontSize: "12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}
+                        />
+                        <Bar dataKey="y" fill={sec.color} radius={[0, 4, 4, 0]} barSize={14} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -724,6 +890,9 @@ export default function Section3Quality() {
   const ctx = useDataContext();
   const hasLiveFees = !!(ctx.fees?.protocols && ctx.fees.protocols.length > 0);
   const [sectorTopN, setSectorTopN] = useState<number>(0); // 0 = all
+  const [showMarketCap, setShowMarketCap] = useState(false);
+  const [expandedBreakdownYears, setExpandedBreakdownYears] = useState<Set<string>>(new Set());
+  const [expandedBreakdownSectors, setExpandedBreakdownSectors] = useState<Set<string>>(new Set());
 
   // ----- Live data: group protocols by DefiLlama category -----
   const liveCategoryGroups = useMemo(() => {
@@ -838,11 +1007,25 @@ export default function Section3Quality() {
     }));
   }, [liveCategoryGroups]);
 
+  // Build a market cap lookup from annual revenue data
+  const marketCapByYear = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const row of annualRevenueData) {
+      map.set(row.year, row.cryptoMarketCap / 1000); // Convert $B to $T
+    }
+    // Use live market cap for current year
+    if (ctx.coinGecko?.global?.totalMarketCap) {
+      map.set(2025, ctx.coinGecko.global.totalMarketCap / 1e12);
+    }
+    return map;
+  }, [ctx.coinGecko]);
+
   // ----- Stacked area chart: static base + live-updated latest period -----
   const areaData = useMemo(() => {
     const base = sectorBreakdownTimeSeries.map((d) => ({
       ...d,
       name: d.year.toString(),
+      marketCapT: marketCapByYear.get(d.year) ?? null,
     }));
 
     if (liveCategoryGroups) {
@@ -873,7 +1056,46 @@ export default function Section3Quality() {
     }
 
     return base;
-  }, [liveCategoryGroups]);
+  }, [liveCategoryGroups, marketCapByYear]);
+
+  // ----- Breakdown table: year-by-year sector data with constituent protocols -----
+  const breakdownTableData = useMemo(() => {
+    // Start from static data, enrich with live for latest year
+    const years = areaData.map((d) => ({
+      year: d.name,
+      total: SECTOR_KEYS.reduce((s, k) => s + (Number((d as Record<string, unknown>)[k]) || 0), 0),
+      sectors: SECTOR_KEYS.map((k) => ({
+        key: k,
+        label: SECTOR_LABELS[k] || k,
+        value: Number((d as Record<string, unknown>)[k]) || 0,
+        color: SECTOR_COLORS[k] || "#94a3b8",
+      })).filter((s) => s.value > 0).sort((a, b) => b.value - a.value),
+      marketCapT: (d as Record<string, unknown>).marketCapT as number | null,
+    }));
+    return years.reverse(); // Most recent first
+  }, [areaData]);
+
+  // Sector constituents from live data (for expandable rows in breakdown table)
+  const sectorConstituents = useMemo(() => {
+    if (!hasLiveFees || !ctx.fees) return new Map<string, Array<{ name: string; fees24h: number; fees30d: number; feesAnn: number }>>();
+    const map = new Map<string, Array<{ name: string; fees24h: number; fees30d: number; feesAnn: number }>>();
+    for (const p of ctx.fees.protocols) {
+      if (p.total24h <= 0) continue;
+      const sector = mapCategoryToSector(p.category || "Other");
+      if (!map.has(sector)) map.set(sector, []);
+      map.get(sector)!.push({
+        name: p.displayName || p.name,
+        fees24h: p.total24h,
+        fees30d: p.total30d || 0,
+        feesAnn: p.total24h * 365,
+      });
+    }
+    // Sort each sector's protocols by revenue
+    for (const [, protos] of map) {
+      protos.sort((a, b) => b.fees24h - a.fees24h);
+    }
+    return map;
+  }, [hasLiveFees, ctx.fees]);
 
   // ----- Exchange deep-dive: live DEX/CEX from protocols or static -----
   const exchangeData = useMemo(() => {
@@ -1081,13 +1303,41 @@ export default function Section3Quality() {
             <h3 className="text-lg font-bold text-slate-900 mb-1">
               Sector Revenue Composition (2020 - 2025)
             </h3>
-            <p className="text-sm text-slate-500 mb-6">
+            <p className="text-sm text-slate-500 mb-4">
               Exchanges dominated in 2020-21. Stablecoins took over in the bear market. DeFi surged again in 2024-25.
               {isLive && <span className="text-emerald-500 ml-1">(latest period live-updated)</span>}
             </p>
+
+            {/* Market Cap Toggle */}
+            <div className="flex items-center gap-3 mb-4">
+              <button
+                onClick={() => setShowMarketCap(!showMarketCap)}
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  padding: "5px 12px",
+                  border: "1px solid",
+                  borderColor: showMarketCap ? "#8b5cf6" : "#d4d4d4",
+                  backgroundColor: showMarketCap ? "#8b5cf6" : "#ffffff",
+                  color: showMarketCap ? "#ffffff" : "#666666",
+                  borderRadius: 0,
+                  cursor: "pointer",
+                }}
+              >
+                {showMarketCap ? "Hide" : "Show"} Total Crypto Market Cap
+              </button>
+              {showMarketCap && (
+                <span className="text-xs text-slate-400">
+                  Purple line = total crypto market cap (right axis, in $T)
+                </span>
+              )}
+            </div>
+
             <div className="h-[400px]">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={areaData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <ComposedChart data={areaData} margin={{ top: 10, right: showMarketCap ? 60 : 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis
                     dataKey="name"
@@ -1096,11 +1346,23 @@ export default function Section3Quality() {
                     tickLine={false}
                   />
                   <YAxis
+                    yAxisId="left"
                     tick={{ fontSize: 12, fill: "#64748b" }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(v: number) => `$${v}B`}
                   />
+                  {showMarketCap && (
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      tick={{ fontSize: 12, fill: "#8b5cf6" }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v: number) => `$${v.toFixed(1)}T`}
+                      domain={[0, "auto"]}
+                    />
+                  )}
                   <Tooltip content={<SectorAreaTooltip />} />
                   {SECTOR_KEYS.map((key) => (
                     <Area
@@ -1108,12 +1370,26 @@ export default function Section3Quality() {
                       type="monotone"
                       dataKey={key}
                       stackId="1"
+                      yAxisId="left"
                       stroke={SECTOR_COLORS[key]}
                       fill={SECTOR_COLORS[key]}
                       fillOpacity={0.75}
                     />
                   ))}
-                </AreaChart>
+                  {showMarketCap && (
+                    <Line
+                      type="monotone"
+                      dataKey="marketCapT"
+                      yAxisId="right"
+                      stroke="#8b5cf6"
+                      strokeWidth={2.5}
+                      strokeDasharray="6 3"
+                      dot={{ r: 4, fill: "#8b5cf6", strokeWidth: 0 }}
+                      name="Market Cap ($T)"
+                      connectNulls
+                    />
+                  )}
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
 
@@ -1128,8 +1404,171 @@ export default function Section3Quality() {
                   {SECTOR_LABELS[key]}
                 </div>
               ))}
+              {showMarketCap && (
+                <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                  <span className="inline-block w-3 h-0.5 rounded-sm" style={{ backgroundColor: "#8b5cf6", border: "1px dashed #8b5cf6" }} />
+                  Market Cap
+                </div>
+              )}
             </div>
           </ChartExport>
+
+          {/* Expandable Breakdown Table */}
+          <div className="mt-6 pt-4" style={{ borderTop: "1px solid #e8e8e8" }}>
+            <h4 className="text-sm font-bold text-slate-800 mb-3 uppercase tracking-wider">
+              Yearly Sector Breakdown
+            </h4>
+            <div style={{ fontSize: "12px" }}>
+              {/* Header row */}
+              <div style={{ display: "flex", borderBottom: "2px solid #111111", padding: "6px 0", fontWeight: 600, color: "#999999", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                <div style={{ width: 80 }}>Year</div>
+                <div style={{ flex: 1, textAlign: "right" }}>Total Rev</div>
+                <div style={{ flex: 1, textAlign: "right" }}>Market Cap</div>
+                <div style={{ flex: 1, textAlign: "right" }}>Implied P/S</div>
+                <div style={{ width: 40 }} />
+              </div>
+
+              {breakdownTableData.map((yr) => {
+                const isExpanded = expandedBreakdownYears.has(yr.year);
+                const impliedPS = yr.marketCapT != null && yr.total > 0 ? ((yr.marketCapT * 1000) / yr.total).toFixed(1) : null;
+                return (
+                  <div key={yr.year}>
+                    <button
+                      onClick={() => {
+                        setExpandedBreakdownYears((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(yr.year)) next.delete(yr.year); else next.add(yr.year);
+                          return next;
+                        });
+                      }}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        padding: "8px 0",
+                        borderBottom: "1px solid #f0f0f0",
+                        background: isExpanded ? "#f8f9fa" : "transparent",
+                        border: "none",
+                        borderBottomWidth: 1,
+                        borderBottomStyle: "solid",
+                        borderBottomColor: "#f0f0f0",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        fontSize: "13px",
+                      }}
+                    >
+                      <div style={{ width: 80, fontWeight: 700, color: "#111111", textAlign: "left" }}>
+                        <span style={{ marginRight: 6, color: "#999999", fontSize: "12px" }}>{isExpanded ? "\u25BC" : "\u25B6"}</span>
+                        {yr.year}
+                      </div>
+                      <div style={{ flex: 1, textAlign: "right", fontWeight: 600, color: "#111111" }}>
+                        {formatBillions(yr.total)}
+                      </div>
+                      <div style={{ flex: 1, textAlign: "right", color: "#666666" }}>
+                        {yr.marketCapT != null ? `$${yr.marketCapT.toFixed(2)}T` : "\u2014"}
+                      </div>
+                      <div style={{ flex: 1, textAlign: "right", fontWeight: 600, color: impliedPS ? "#111111" : "#999999" }}>
+                        {impliedPS ? `${impliedPS}x` : "\u2014"}
+                      </div>
+                      <div style={{ width: 40 }} />
+                    </button>
+
+                    {/* Expanded: show sectors and their constituents */}
+                    {isExpanded && (
+                      <div style={{ backgroundColor: "#fafafa", padding: "4px 0" }}>
+                        {yr.sectors.map((sec) => {
+                          const sectorKey = `${yr.year}-${sec.key}`;
+                          const isSectorExpanded = expandedBreakdownSectors.has(sectorKey);
+                          const constituents = sectorConstituents.get(sec.key) ?? [];
+                          const pct = yr.total > 0 ? ((sec.value / yr.total) * 100).toFixed(0) : "0";
+                          return (
+                            <div key={sec.key}>
+                              <button
+                                onClick={() => {
+                                  if (constituents.length === 0) return;
+                                  setExpandedBreakdownSectors((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(sectorKey)) next.delete(sectorKey); else next.add(sectorKey);
+                                    return next;
+                                  });
+                                }}
+                                style={{
+                                  width: "100%",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  padding: "6px 8px 6px 32px",
+                                  background: isSectorExpanded ? "#f0f0f0" : "transparent",
+                                  border: "none",
+                                  borderBottom: "1px solid #f0f0f0",
+                                  cursor: constituents.length > 0 ? "pointer" : "default",
+                                  fontFamily: "inherit",
+                                  fontSize: "12px",
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 2 }}>
+                                  {constituents.length > 0 && (
+                                    <span style={{ color: "#999999", fontSize: "10px", width: 12 }}>
+                                      {isSectorExpanded ? "\u25BC" : "\u25B6"}
+                                    </span>
+                                  )}
+                                  <span style={{ width: 8, height: 8, backgroundColor: sec.color, display: "inline-block", flexShrink: 0, borderRadius: 1 }} />
+                                  <span style={{ fontWeight: 600, color: "#333333" }}>{sec.label}</span>
+                                </div>
+                                <div style={{ flex: 1, textAlign: "right", fontWeight: 600, color: "#111111" }}>
+                                  {formatBillions(sec.value)}
+                                </div>
+                                <div style={{ flex: 1, textAlign: "right", color: "#999999" }}>
+                                  {pct}%
+                                </div>
+                                <div style={{ flex: 1, textAlign: "right", color: "#999999", fontSize: "11px" }}>
+                                  {constituents.length > 0 ? `${constituents.length} protocols` : ""}
+                                </div>
+                                <div style={{ width: 40 }} />
+                              </button>
+
+                              {/* Expanded sector: show constituent protocols */}
+                              {isSectorExpanded && constituents.length > 0 && (
+                                <div style={{ backgroundColor: "#f5f5f5", padding: "2px 0" }}>
+                                  <div style={{ display: "flex", padding: "4px 8px 4px 64px", fontSize: "10px", fontWeight: 600, color: "#999999", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                                    <div style={{ flex: 2 }}>Protocol</div>
+                                    <div style={{ flex: 1, textAlign: "right" }}>Fees 24h</div>
+                                    <div style={{ flex: 1, textAlign: "right" }}>Fees 30d</div>
+                                    <div style={{ flex: 1, textAlign: "right" }}>Ann.</div>
+                                  </div>
+                                  {constituents.slice(0, 20).map((p, idx) => (
+                                    <div
+                                      key={p.name}
+                                      style={{
+                                        display: "flex",
+                                        padding: "4px 8px 4px 64px",
+                                        fontSize: "11px",
+                                        backgroundColor: idx % 2 === 0 ? "#f5f5f5" : "#ffffff",
+                                        borderBottom: "1px solid #f0f0f0",
+                                      }}
+                                    >
+                                      <div style={{ flex: 2, fontWeight: 500, color: "#333333" }}>{p.name}</div>
+                                      <div style={{ flex: 1, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatCompactValue(p.fees24h)}</div>
+                                      <div style={{ flex: 1, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatCompactValue(p.fees30d)}</div>
+                                      <div style={{ flex: 1, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{formatCompactValue(p.feesAnn)}</div>
+                                    </div>
+                                  ))}
+                                  {constituents.length > 20 && (
+                                    <div style={{ padding: "4px 8px 4px 64px", fontSize: "11px", color: "#999999", fontStyle: "italic" }}>
+                                      + {constituents.length - 20} more protocols
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
           <DataSource sources={["DefiLlama (live)", "TokenTerminal (live)"]} />
         </Card>
@@ -1179,6 +1618,7 @@ export default function Section3Quality() {
               protocols={ctx.fees!.protocols}
               coinGeckoTokens={ctx.coinGecko?.tokens ?? []}
               earningsProtocols={ctx.earnings?.protocols ?? []}
+              tvlProtocols={ctx.tvl?.allProtocolsTVL ?? []}
               topN={sectorTopN}
             />
 

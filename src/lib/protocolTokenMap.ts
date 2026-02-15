@@ -289,6 +289,12 @@ export const PROTOCOL_TOKEN_MAP: Record<string, ProtocolTokenMapping> = {
   "io-net": { defiLlamaName: "io-net", coinGeckoId: null, hasToken: false, tokenSymbol: null, subcategory: "DePIN", categoryGroup: "Infrastructure" },
 
   // =========================================================================
+  // Wallets
+  // =========================================================================
+  "phantom": { defiLlamaName: "phantom", coinGeckoId: null, hasToken: false, tokenSymbol: null, subcategory: "Wallet", categoryGroup: "Consumer" },
+  "metamask": { defiLlamaName: "metamask", coinGeckoId: null, hasToken: false, tokenSymbol: null, subcategory: "Wallet", categoryGroup: "Consumer" },
+
+  // =========================================================================
   // Additional DeFi protocols for comprehensive coverage
   // =========================================================================
   "ribbon-finance": { defiLlamaName: "ribbon-finance", coinGeckoId: "ribbon-finance", hasToken: true, tokenSymbol: "RBN", subcategory: "Options", categoryGroup: "DeFi" },
