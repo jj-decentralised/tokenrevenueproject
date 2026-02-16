@@ -916,7 +916,7 @@ export default function SectionCategoryRevenue() {
                                 >
                                   {margin == null
                                     ? "\u2014"
-                                    : `${(margin * 100).toFixed(0)}%`}
+                                    : `${(Math.min(Math.max(margin, -1), 1) * 100).toFixed(0)}%`}
                                 </td>
                               </tr>
                             );

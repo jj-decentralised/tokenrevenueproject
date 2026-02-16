@@ -496,11 +496,17 @@ export default function Section7Analytics() {
   );
   const revVsTvlByCategory = useMemo(() => groupByCategory(revVsTvlScatter), [revVsTvlScatter]);
 
+  // Use median instead of mean to avoid outlier distortion (e.g., 58,798% avg)
   const avgRevenueTvl = useMemo(() => {
-    const valid = revVsTvlScatter.filter((p) => isFinite(p.revenueTvl));
-    if (valid.length === 0) return 0.1;
-    const sum = valid.reduce((s, p) => s + p.revenueTvl, 0);
-    return sum / valid.length;
+    const values = revVsTvlScatter
+      .map((p) => p.revenueTvl)
+      .filter((v) => isFinite(v) && v > 0 && v < 100)
+      .sort((a, b) => a - b);
+    if (values.length === 0) return 0.1;
+    const mid = Math.floor(values.length / 2);
+    return values.length % 2 === 0
+      ? (values[mid - 1] + values[mid]) / 2
+      : values[mid];
   }, [revVsTvlScatter]);
 
   // =======================================================================
@@ -656,7 +662,7 @@ export default function Section7Analytics() {
   return (
     <section className="space-y-12">
       <SectionHeader
-        number="7"
+        number="9"
         title="Protocol Analytics"
         subtitle="Cross-protocol analysis using the full dataset of fee-generating protocols. Scatter plots, treemaps, and distribution charts across multiple metrics."
       />

@@ -631,8 +631,8 @@ export default function ProtocolProfilePage() {
   }, [defiLlamaData]);
 
   // Market cap & FDV: CoinGecko → DefiLlama TVL endpoint fallback
-  const marketCap = coinGeckoToken?.marketCap ?? (tvlData && 'mcap' in tvlData ? (tvlData as any).mcap : null) ?? null;
-  const fdv = coinGeckoToken?.fullyDilutedValuation ?? (tvlData && 'fdv' in tvlData ? (tvlData as any).fdv : null) ?? null;
+  const marketCap = coinGeckoToken?.marketCap ?? (tvlData as any)?.mcap ?? null;
+  const fdv = coinGeckoToken?.fullyDilutedValuation ?? (tvlData as any)?.fdv ?? null;
 
   const psRatio = useMemo(() => {
     if (fdv && annualizedRevenue && annualizedRevenue > 0) {
@@ -1153,10 +1153,10 @@ export default function ProtocolProfilePage() {
                         style={{
                           textAlign: "right",
                           fontWeight: 700,
-                          color: defiLlamaData.margin >= 0.5 ? "#2e7d32" : defiLlamaData.margin >= 0.2 ? "#c67100" : "#9e2b25",
+                          color: Math.min(defiLlamaData.margin, 1) >= 0.5 ? "#2e7d32" : Math.min(defiLlamaData.margin, 1) >= 0.2 ? "#c67100" : "#9e2b25",
                         }}
                       >
-                        {(defiLlamaData.margin * 100).toFixed(1)}%
+                        {(Math.min(Math.max(defiLlamaData.margin, -1), 1) * 100).toFixed(1)}%
                       </td>
                     </tr>
                   )}

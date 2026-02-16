@@ -61,13 +61,18 @@ function formatRatio(value: number | null | undefined): string {
 
 function formatPct(value: number | null | undefined): string {
   if (value == null || !isFinite(value)) return "\u2014";
-  const sign = value >= 0 ? "+" : "";
-  return `${sign}${value.toFixed(1)}%`;
+  // Cap extreme outliers for display readability
+  const capped = Math.min(Math.max(value, -999), 9999);
+  const sign = capped >= 0 ? "+" : "";
+  if (Math.abs(capped) >= 1000) return `${sign}${(capped / 1000).toFixed(1)}K%`;
+  return `${sign}${capped.toFixed(1)}%`;
 }
 
 function formatMargin(value: number | null | undefined): string {
   if (value == null || !isFinite(value)) return "\u2014";
-  return `${(value * 100).toFixed(0)}%`;
+  // Cap display at 100% — values >100% indicate data inconsistency
+  const capped = Math.min(Math.max(value, -1), 1);
+  return `${(capped * 100).toFixed(0)}%`;
 }
 
 function toSlug(name: string): string {
@@ -511,8 +516,9 @@ export default function Section6Protocols() {
       const psBase = protocolRevenue24h != null ? protocolRevenue24h * 365 : feesAnn;
       const revenueAnn = psBase; // best available annualized revenue
 
-      // Margin: enriched DL margin → TT earnings margin
-      const margin = p.margin ?? earningsMatch?.margin ?? null;
+      // Margin: enriched DL margin → TT earnings margin, capped to [-1, 1] range
+      const rawMargin = p.margin ?? earningsMatch?.margin ?? null;
+      const margin = rawMargin != null ? Math.min(Math.max(rawMargin, -1), 1) : null;
 
       // Market cap & FDV: CoinGecko → DefiLlama TVL endpoint fallback
       const marketCap = tokenMatch?.marketCap ?? tvlMatch?.mcap ?? null;
@@ -653,14 +659,17 @@ export default function Section6Protocols() {
     return groups;
   }, [scatterRevTvl]);
 
-  // Average revenue/TVL ratio for reference line
+  // Median revenue/TVL ratio for reference line (median avoids outlier distortion)
   const avgRevenueTvl = useMemo(() => {
-    const valid = mergedProtocols.filter(
-      (p) => p.revenueTvl != null && isFinite(p.revenueTvl!)
-    );
-    if (valid.length === 0) return 0.1;
-    const sum = valid.reduce((s, p) => s + p.revenueTvl!, 0);
-    return sum / valid.length;
+    const values = mergedProtocols
+      .map((p) => p.revenueTvl)
+      .filter((v): v is number => v != null && isFinite(v) && v > 0 && v < 100)
+      .sort((a, b) => a - b);
+    if (values.length === 0) return 0.1;
+    const mid = Math.floor(values.length / 2);
+    return values.length % 2 === 0
+      ? (values[mid - 1] + values[mid]) / 2
+      : values[mid];
   }, [mergedProtocols]);
 
   // -----------------------------------------------------------------------

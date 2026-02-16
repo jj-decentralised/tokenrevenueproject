@@ -278,7 +278,7 @@ export const stablecoinRevenueBreakdown = [
   { year: 2022, interestIncome: 3.5, transactionFees: 1.2, other: 0.7, fedRate: 4.5, total: 5.4 },
   { year: 2023, interestIncome: 6.8, transactionFees: 1.0, other: 0.7, fedRate: 5.5, total: 8.5 },
   { year: 2024, interestIncome: 11.5, transactionFees: 2.0, other: 1.5, fedRate: 5.0, total: 15.0 },
-  { year: 2025, interestIncome: 13.0, transactionFees: 4.5, other: 2.5, fedRate: 4.25, total: 20.0 },
+  { year: 2025, interestIncome: 13.0, transactionFees: 4.5, other: 2.5, fedRate: 4.50, total: 20.0 },
 ];
 
 // Consumer crypto analysis

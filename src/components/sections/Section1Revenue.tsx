@@ -264,6 +264,23 @@ export default function Section1Revenue() {
       100
     ).toFixed(0);
 
+    // Compute live stablecoin share from protocol data
+    let stablecoinPct = 35; // default fallback
+    if (ctx.fees?.protocols) {
+      const stableSlugs = ["tether", "circle"];
+      const totalFees = ctx.fees.protocols.reduce((s, p) => s + (p.total24h || 0), 0);
+      const stableFees = ctx.fees.protocols
+        .filter((p) => {
+          const slug = (p.slug || p.name.toLowerCase().replace(/\s+/g, "-")).toLowerCase();
+          const cat = (p.category || "").toLowerCase();
+          return stableSlugs.includes(slug) || cat.includes("stablecoin");
+        })
+        .reduce((s, p) => s + (p.total24h || 0), 0);
+      if (totalFees > 0) {
+        stablecoinPct = Math.round((stableFees / totalFees) * 100);
+      }
+    }
+
     return {
       totalRevAnnualized,
       revenueExStable,
@@ -271,6 +288,7 @@ export default function Section1Revenue() {
       yoyGrowthExStable,
       protocolCount,
       protocolCountGrowth,
+      stablecoinPct,
       quarter: ctx.fees?.totalFees24h != null ? "Live (annualized)" : latest.quarter,
     };
   }, [annualRevenueData, ctx.fees]);
@@ -390,7 +408,7 @@ export default function Section1Revenue() {
       <SectionHeader
         number="1"
         title="Revenue Overview & Valuation"
-        subtitle="Crypto protocols generated $56B in annualized revenue by mid-2025 -- a 16x increase since 2020. But how does this compare to traditional markets on a valuation basis?"
+        subtitle="Crypto protocols are generating record annualized revenue -- a 16x increase since 2020. But how does this compare to traditional markets on a valuation basis?"
       />
 
       {/* ---- Live data indicator ---- */}
@@ -441,7 +459,7 @@ export default function Section1Revenue() {
               label="YoY Revenue Growth"
               value={`${Number(headlineStats.yoyGrowth) >= 0 ? "+" : ""}${headlineStats.yoyGrowth}%`}
               subvalue="Total revenue basis"
-              change="Accelerating from +155% in 2024"
+              change={Number(headlineStats.yoyGrowth) > 155 ? "Accelerating from +155% in 2024" : `Prior year: +155% in 2024`}
               changeType={Number(headlineStats.yoyGrowth) >= 0 ? "positive" : "negative"}
             />
             <StatCard
@@ -560,7 +578,7 @@ export default function Section1Revenue() {
         >
           <p className="text-sm text-slate-500 mb-6">
             Total crypto revenue vs. revenue excluding stablecoin issuers, Q1
-            2020 -- Q3 2025
+            2020 -- present (live)
           </p>
 
           {ctx.isLoading ? (
@@ -748,7 +766,7 @@ export default function Section1Revenue() {
         <InsightBox title="Stablecoin Revenue Dominance" type="insight">
           <p>
             Stablecoin issuers (Tether, Circle) now account for{" "}
-            <strong>36%</strong> of total crypto revenue, up from 6% in 2020.
+            <strong>{headlineStats.stablecoinPct}%</strong> of total crypto revenue, up from 6% in 2020.
             Most of this is interest income on reserves -- making it highly
             sensitive to Fed rate policy. Revenue ex-stablecoins gives a cleaner
             picture of native protocol economics.
@@ -757,7 +775,7 @@ export default function Section1Revenue() {
         <InsightBox title="Off-chain Shift" type="warning">
           <p>
             Off-chain revenue surpassed on-chain in 2024 for the first time.
-            In 2025, <strong>65%</strong> of crypto revenue comes off-chain
+            In 2025, <strong>{100 - headlineStats.stablecoinPct}%</strong> of crypto revenue comes off-chain
             (stablecoin interest, CEX trading fees, custody revenue). This
             challenges the narrative that crypto&apos;s value is purely &quot;on-chain.&quot;
           </p>
@@ -1040,8 +1058,8 @@ export default function Section1Revenue() {
             Critically, crypto DeFi at <strong>17x P/S</strong> trades below even
             Intel (2000) at 15x and Salesforce&apos;s IPO at 18x. Unlike the dot-com era,
             crypto protocols are generating{" "}
-            <strong>real, growing revenue</strong> -- $56B annualized and
-            accelerating.
+            <strong>real, growing revenue</strong> at record annualized
+            levels.
           </p>
         </InsightBox>
       </div>

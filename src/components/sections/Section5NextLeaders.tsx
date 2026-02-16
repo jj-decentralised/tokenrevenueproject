@@ -342,7 +342,7 @@ export default function Section5NextLeaders() {
           Current vs Projected Revenue (2027)
         </h3>
         <p className="text-sm text-slate-500 mb-6">
-          Across three emerging sectors — note the log-scale differences in magnitude
+          Across three emerging sectors — note the differences in revenue magnitude
           {ctx.isLive && (
             <span className="ml-2 inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />

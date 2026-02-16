@@ -620,7 +620,7 @@ export default function SectionSectorTimeSeries() {
   return (
     <section className="mb-16">
       <SectionHeader
-        number="9"
+        number="8"
         title="Sector Trends Over Time"
         subtitle="Daily fees, revenue, and market capitalisation broken down by sector. Toggle categories, adjust time window, and switch to % share view to explore trends."
       />

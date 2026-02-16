@@ -471,17 +471,20 @@ function SectorDrillDown({
       const psNumerator = fdv ?? marketCap;
       const ps = psNumerator != null && revenueAnn > 0 ? psNumerator / revenueAnn : null;
 
-      // Volume and take rate (for DEXes/Exchanges)
+      // Volume and take rate (for DEXes/Exchanges) — cap at 100%
       const volume24h = tokenMatch?.totalVolume24h ?? null;
-      const takeRate = volume24h != null && volume24h > 0 && p.total24h > 0
+      const rawTakeRate = volume24h != null && volume24h > 0 && p.total24h > 0
         ? (p.total24h / volume24h) : null;
+      const takeRate = rawTakeRate != null ? Math.min(rawTakeRate, 1) : null;
 
       // Margin: prefer enriched data from API, fallback to TokenTerminal
+      // Cap to [-1, 1] range — values outside indicate data inconsistency
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const protocolRevenue = (p as any).revenue24h as number | undefined;
-      const protocolMargin = protocolRevenue != null && protocolRevenue > 0 && p.total24h > 0
+      const rawMargin = protocolRevenue != null && protocolRevenue > 0 && p.total24h > 0
         ? protocolRevenue / p.total24h
         : earningsMatch?.margin ?? null;
+      const protocolMargin = rawMargin != null ? Math.min(Math.max(rawMargin, -1), 1) : null;
 
       const sp: SectorProtocol = {
         name: p.name,
@@ -1057,15 +1060,18 @@ export default function Section3Quality() {
         cexProtocols.reduce((s, p) => s + (p.total30d || 0), 0) / 30 * 365 / 1e9;
 
       // Only update the latest row if we got meaningful DEX data
+      // DefiLlama doesn't track CEX fees well — preserve static CEX data when live is 0
       if (dexAnnualized > 0) {
         const lastIdx = base.length - 1;
         if (lastIdx >= 0) {
-          const total = dexAnnualized + cexAnnualized;
-          const cexDom = total > 0 ? Math.round((cexAnnualized / total) * 100) : base[lastIdx].cexDominance;
+          const staticCex = base[lastIdx].cex;
+          const liveCex = cexAnnualized > 0 ? Math.round(cexAnnualized * 10) / 10 : staticCex;
+          const total = dexAnnualized + liveCex;
+          const cexDom = total > 0 ? Math.round((liveCex / total) * 100) : base[lastIdx].cexDominance;
           base[lastIdx] = {
             ...base[lastIdx],
             dex: Math.round(dexAnnualized * 10) / 10,
-            cex: cexAnnualized > 0 ? Math.round(cexAnnualized * 10) / 10 : base[lastIdx].cex,
+            cex: liveCex,
             total: Math.round(total * 10) / 10 || base[lastIdx].total,
             cexDominance: cexDom,
           };
@@ -1096,13 +1102,15 @@ export default function Section3Quality() {
       if (dexAnnualized > 0) {
         const lastIdx = base.length - 1;
         if (lastIdx >= 0) {
-          const total = dexAnnualized + cexAnnualized;
+          const staticCex = base[lastIdx].cex;
+          const liveCex = cexAnnualized > 0 ? Math.round(cexAnnualized * 10) / 10 : staticCex;
+          const total = dexAnnualized + liveCex;
           base[lastIdx] = {
             ...base[lastIdx],
             dex: Math.round(dexAnnualized * 10) / 10,
-            cex: cexAnnualized > 0 ? Math.round(cexAnnualized * 10) / 10 : base[lastIdx].cex,
+            cex: liveCex,
             total: Math.round(total * 10) / 10 || base[lastIdx].total,
-            cexDominance: total > 0 ? Math.round((cexAnnualized / total) * 100) : base[lastIdx].cexDominance,
+            cexDominance: total > 0 ? Math.round((liveCex / total) * 100) : base[lastIdx].cexDominance,
           };
         }
       }

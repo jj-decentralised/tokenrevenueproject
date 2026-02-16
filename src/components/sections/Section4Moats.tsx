@@ -363,7 +363,8 @@ export default function Section4Moats() {
         );
 
         if (liveProto && liveProto.total24h > 0) {
-          const annualizedM = Math.round(liveProto.total24h * 365);
+          // Convert to millions to match static moatAnalysis revenue unit ($M)
+          const annualizedM = Math.round((liveProto.total24h * 365) / 1e6);
           enriched = { ...enriched, revenue: annualizedM > 0 ? annualizedM : p.revenue };
         }
       }

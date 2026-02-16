@@ -253,8 +253,10 @@ export default function SectionScatterAnalysis() {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const protocolRevenue = (p as any).revenue24h as number | undefined;
-      const margin = protocolRevenue != null && protocolRevenue > 0 && p.total24h > 0
+      const rawMargin = protocolRevenue != null && protocolRevenue > 0 && p.total24h > 0
         ? protocolRevenue / p.total24h : null;
+      // Cap margin to [0, 1] range — values >100% indicate data inconsistency
+      const margin = rawMargin != null ? Math.min(Math.max(rawMargin, 0), 1) : null;
 
       results.push({
         name: p.name,
@@ -297,11 +299,19 @@ export default function SectionScatterAnalysis() {
   );
 
   // Scatter plot data: filter to protocols that have both X and Y metrics
+  // Also clip extreme P/S, margin, and takeRate outliers for chart readability
   const scatterData = useMemo(
     () => filteredProtocols.filter((p) => {
       const x = p[xMetric];
       const y = p[yMetric];
-      return x != null && (x as number) > 0 && y != null && (y as number) > 0;
+      if (x == null || (x as number) <= 0 || y == null || (y as number) <= 0) return false;
+      // Clip P/S outliers: exclude >1000x for readable scatter
+      if (xMetric === "ps" && (x as number) > 1000) return false;
+      if (yMetric === "ps" && (y as number) > 1000) return false;
+      // Clip margin/takeRate outliers: exclude >100%
+      if ((xMetric === "margin" || xMetric === "takeRate") && (x as number) > 1) return false;
+      if ((yMetric === "margin" || yMetric === "takeRate") && (y as number) > 1) return false;
+      return true;
     }),
     [filteredProtocols, xMetric, yMetric]
   );
@@ -345,7 +355,7 @@ export default function SectionScatterAnalysis() {
   return (
     <section className="mb-16">
       <SectionHeader
-        number="8"
+        number="7"
         title="Sector Scatter Analysis"
         subtitle="Explore relationships between protocol metrics across sectors. Toggle categories, configure axes, and drill into individual protocols."
       />

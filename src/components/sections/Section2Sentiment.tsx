@@ -468,7 +468,7 @@ export default function Section2Sentiment() {
 
   // Current Fear & Greed value
   const fgValue = hasLiveSentiment
-    ? ctx.sentiment!.fearGreed.current
+    ? (ctx.sentiment?.fearGreed?.current ?? sentimentKeyMetrics.currentFearGreed)
     : sentimentKeyMetrics.currentFearGreed;
 
   // ATH for F&G — we keep the static constant since the API doesn't expose an ATH
@@ -481,8 +481,8 @@ export default function Section2Sentiment() {
 
   // Quarterly revenue from live fees (aggregated)
   const liveQuarterlyRevenue = useMemo(() => {
-    if (!hasLiveFees) return null;
-    return aggregateToQuarterly(ctx.fees!.totalDataChart);
+    if (!hasLiveFees || !ctx.fees?.totalDataChart) return null;
+    return aggregateToQuarterly(ctx.fees.totalDataChart);
   }, [hasLiveFees, ctx.fees]);
 
   // Latest quarterly revenue in $B
@@ -521,12 +521,13 @@ export default function Section2Sentiment() {
     if (
       hasLiveSentiment &&
       hasLiveFees &&
-      ctx.sentiment!.fearGreed.history.length > 0 &&
+      ctx.sentiment?.fearGreed?.history &&
+      ctx.sentiment.fearGreed.history.length > 0 &&
       liveQuarterlyRevenue &&
       liveQuarterlyRevenue.length > 0
     ) {
       const built = buildLiveSentimentVsRevenue(
-        ctx.sentiment!.fearGreed.history,
+        ctx.sentiment!.fearGreed!.history,
         liveQuarterlyRevenue
       );
       // Only use live data if we got a reasonable number of points
@@ -545,8 +546,8 @@ export default function Section2Sentiment() {
   // Build live ETH ETF flows chart data when available
   // -----------------------------------------------------------------------
   const ethFlowsChartData = useMemo(() => {
-    if (hasLiveEtf && ctx.etf!.netFlows.length > 0) {
-      const liveData = buildLiveEthFlowsData(ctx.etf!.netFlows);
+    if (hasLiveEtf && ctx.etf?.netFlows && ctx.etf.netFlows.length > 0) {
+      const liveData = buildLiveEthFlowsData(ctx.etf.netFlows);
       // Only use live data if we got enough data points
       if (liveData.length >= 3) return liveData;
     }
@@ -557,8 +558,8 @@ export default function Section2Sentiment() {
   // Build protocol revenue comparison data when available
   // -----------------------------------------------------------------------
   const protocolRevenueData = useMemo(() => {
-    if (hasLiveProtocolHistory && ctx.protocolHistory!.protocols.length > 0) {
-      return buildProtocolRevenueComparison(ctx.protocolHistory!.protocols);
+    if (hasLiveProtocolHistory && ctx.protocolHistory?.protocols && ctx.protocolHistory.protocols.length > 0) {
+      return buildProtocolRevenueComparison(ctx.protocolHistory.protocols);
     }
     return null;
   }, [hasLiveProtocolHistory, ctx.protocolHistory]);

@@ -17,7 +17,7 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 
 const NAV_ITEMS = [
   { id: "category-revenue", label: "Revenue by Category" },
-  { id: "revenue", label: "Revenue & P/E" },
+  { id: "revenue", label: "Revenue & Valuation" },
   { id: "sentiment", label: "Sentiment" },
   { id: "quality", label: "Revenue Quality" },
   { id: "moats", label: "Moats" },
