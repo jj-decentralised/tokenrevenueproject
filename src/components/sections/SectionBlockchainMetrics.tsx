@@ -207,26 +207,6 @@ function PFTooltip({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Custom dot shape for scatter (circle with subtle stroke)
-// ---------------------------------------------------------------------------
-
-function RenderDot(props: Record<string, unknown>) {
-  const { cx, cy, payload } = props as { cx: number; cy: number; payload: EnrichedProtocol };
-  const r = Math.max(4, Math.min(14, Math.sqrt((payload?.fees24h ?? 0) / 5000)));
-  return (
-    <circle
-      cx={cx}
-      cy={cy}
-      r={r}
-      fill={payload?.color ?? "#94a3b8"}
-      fillOpacity={0.65}
-      stroke={payload?.color ?? "#94a3b8"}
-      strokeWidth={1.5}
-      strokeOpacity={0.9}
-    />
-  );
-}
 
 
 // ---------------------------------------------------------------------------
@@ -478,12 +458,9 @@ export default function SectionBlockchainMetrics() {
                   content={<PSTooltip />}
                   cursor={{ stroke: "#d4d4d4", strokeDasharray: "3 3" }}
                 />
-                <Scatter
-                  data={allProtocols}
-                  shape={(props: Record<string, unknown>) => <RenderDot {...props} />}
-                >
+                <Scatter data={allProtocols} shape="circle">
                   {allProtocols.map((entry, idx) => (
-                    <Cell key={idx} fill={entry.color} />
+                    <Cell key={idx} fill={entry.color} fillOpacity={0.65} stroke={entry.color} strokeWidth={1} />
                   ))}
                 </Scatter>
               </ScatterChart>
@@ -658,12 +635,9 @@ export default function SectionBlockchainMetrics() {
                   content={<PFTooltip />}
                   cursor={{ stroke: "#d4d4d4", strokeDasharray: "3 3" }}
                 />
-                <Scatter
-                  data={allProtocols}
-                  shape={(props: Record<string, unknown>) => <RenderDot {...props} />}
-                >
+                <Scatter data={allProtocols} shape="circle">
                   {allProtocols.map((entry, idx) => (
-                    <Cell key={idx} fill={entry.color} />
+                    <Cell key={idx} fill={entry.color} fillOpacity={0.65} stroke={entry.color} strokeWidth={1} />
                   ))}
                 </Scatter>
               </ScatterChart>
