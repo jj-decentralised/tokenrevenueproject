@@ -11,6 +11,7 @@ import Section7Analytics from "@/components/sections/Section7Analytics";
 import SectionCategoryRevenue from "@/components/sections/SectionCategoryRevenue";
 import SectionScatterAnalysis from "@/components/sections/SectionScatterAnalysis";
 import SectionSectorTimeSeries from "@/components/sections/SectionSectorTimeSeries";
+import SectionBlockchainMetrics from "@/components/sections/SectionBlockchainMetrics";
 import { useDataContext } from "@/lib/DataContext";
 import { DataStatus } from "@/components/ui/DataStatus";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
@@ -24,6 +25,7 @@ const NAV_ITEMS = [
   { id: "next-leaders", label: "Next Leaders" },
   { id: "protocols", label: "Protocol Explorer" },
   { id: "scatter", label: "Scatter Analysis" },
+  { id: "blockchain-metrics", label: "Valuation Multiples" },
   { id: "sector-trends", label: "Sector Trends" },
   { id: "analytics", label: "Analytics" },
 ] as const;
@@ -50,6 +52,7 @@ export default function HomePage() {
     "next-leaders": null,
     protocols: null,
     scatter: null,
+    "blockchain-metrics": null,
     "sector-trends": null,
     analytics: null,
   });
@@ -258,6 +261,16 @@ export default function HomePage() {
         >
           <ErrorBoundary>
             <SectionScatterAnalysis />
+          </ErrorBoundary>
+        </div>
+
+        <div
+          id="blockchain-metrics"
+          data-section-id="blockchain-metrics"
+          ref={setSectionRef("blockchain-metrics")}
+        >
+          <ErrorBoundary>
+            <SectionBlockchainMetrics />
           </ErrorBoundary>
         </div>
 
