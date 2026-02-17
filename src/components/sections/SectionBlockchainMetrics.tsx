@@ -487,6 +487,16 @@ export default function SectionBlockchainMetrics() {
     };
   }, [scatterData]);
 
+  // Median P/F by layer type (L1 index, L2 index)
+  const layerMedians = useMemo(() => {
+    const l1Pfs = scatterData.filter((b) => b.chainType === "L1" && b.pf != null && b.pf > 0).map((b) => b.pf!);
+    const l2Pfs = scatterData.filter((b) => b.chainType === "L2" && b.pf != null && b.pf > 0).map((b) => b.pf!);
+    return {
+      l1: l1Pfs.length > 0 ? median(l1Pfs) : 0,
+      l2: l2Pfs.length > 0 ? median(l2Pfs) : 0,
+    };
+  }, [scatterData]);
+
   // Deviation data: how many multiples more expensive each peer is vs the lowest P/F chain
   const pfDeviationData = useMemo(() => {
     if (!lowestPFChain || lowestPFChain.pf == null) return [];
@@ -753,6 +763,18 @@ export default function SectionBlockchainMetrics() {
                 <span style={{ width: 12, height: 12, backgroundColor: HIGHLIGHT_GREEN, display: "inline-block", borderRadius: "50%" }} />
                 <span style={{ fontWeight: 600, color: HIGHLIGHT_GREEN }}>{lowestPFChain.displayName} (baseline)</span>
               </div>
+              {layerMedians.l1 > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px" }}>
+                  <span style={{ width: 16, height: 0, borderTop: `2px dashed ${CHAIN_TYPE_COLORS.L1}`, display: "inline-block" }} />
+                  <span style={{ fontWeight: 500, color: CHAIN_TYPE_COLORS.L1 }}>L1 Index (median P/F)</span>
+                </div>
+              )}
+              {layerMedians.l2 > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px" }}>
+                  <span style={{ width: 16, height: 0, borderTop: `2px dashed ${CHAIN_TYPE_COLORS.L2}`, display: "inline-block" }} />
+                  <span style={{ fontWeight: 500, color: CHAIN_TYPE_COLORS.L2 }}>L2 Index (median P/F)</span>
+                </div>
+              )}
             </div>
 
             <div style={{ height: Math.max(300, pfDeviationData.length * 36 + 60) }}>
@@ -819,6 +841,40 @@ export default function SectionBlockchainMetrics() {
                         value={`Median: ${formatRatio(medians.pf)} (${(medians.pf / lowestPFChain.pf!).toFixed(1)}x)`}
                         position="insideTopRight"
                         style={{ fontSize: 10, fill: "#111111", fontWeight: 600, fontFamily: "'Inter', sans-serif" }}
+                        offset={6}
+                      />
+                    </ReferenceLine>
+                  )}
+                  {/* L1 Index reference */}
+                  {layerMedians.l1 > 0 && lowestPFChain.pf != null && (
+                    <ReferenceLine
+                      x={layerMedians.l1 / lowestPFChain.pf}
+                      stroke={CHAIN_TYPE_COLORS.L1}
+                      strokeDasharray="4 3"
+                      strokeWidth={1.5}
+                      strokeOpacity={0.7}
+                    >
+                      <Label
+                        value={`L1 Index: ${formatRatio(layerMedians.l1)} (${(layerMedians.l1 / lowestPFChain.pf!).toFixed(1)}x)`}
+                        position="insideBottomRight"
+                        style={{ fontSize: 10, fill: CHAIN_TYPE_COLORS.L1, fontWeight: 600, fontFamily: "'Inter', sans-serif" }}
+                        offset={6}
+                      />
+                    </ReferenceLine>
+                  )}
+                  {/* L2 Index reference */}
+                  {layerMedians.l2 > 0 && lowestPFChain.pf != null && (
+                    <ReferenceLine
+                      x={layerMedians.l2 / lowestPFChain.pf}
+                      stroke={CHAIN_TYPE_COLORS.L2}
+                      strokeDasharray="4 3"
+                      strokeWidth={1.5}
+                      strokeOpacity={0.7}
+                    >
+                      <Label
+                        value={`L2 Index: ${formatRatio(layerMedians.l2)} (${(layerMedians.l2 / lowestPFChain.pf!).toFixed(1)}x)`}
+                        position="insideBottomLeft"
+                        style={{ fontSize: 10, fill: CHAIN_TYPE_COLORS.L2, fontWeight: 600, fontFamily: "'Inter', sans-serif" }}
                         offset={6}
                       />
                     </ReferenceLine>
