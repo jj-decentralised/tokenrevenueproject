@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import Section1Revenue from "@/components/sections/Section1Revenue";
 import Section2Sentiment from "@/components/sections/Section2Sentiment";
 import Section3Quality from "@/components/sections/Section3Quality";
@@ -145,6 +146,18 @@ export default function HomePage() {
             <p className="mt-4 text-[#999999]" style={{ fontSize: "13px" }}>
               By <span className="text-[#333333] font-medium">Saurabh &amp; Team</span>
             </p>
+            <Link
+              href="/ps-comparison"
+              className="inline-block mt-4 text-[13px] font-medium transition-colors"
+              style={{
+                color: "#0274B6",
+                textDecoration: "none",
+                borderBottom: "1px solid #0274B6",
+                paddingBottom: 1,
+              }}
+            >
+              Special Report: Dot-Com vs Crypto P/S Comparison &rarr;
+            </Link>
           </div>
           {/* Data status indicator -- top-right of header */}
           <div className="flex-shrink-0 pt-1">
