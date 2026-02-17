@@ -54,6 +54,25 @@ function median(values: number[]): number {
     : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+/** Format vs-baseline ratio: "baseline" for 1.0x, "Xx" for others */
+function formatVsBaseline(pf: number | null, basePf: number | null): string {
+  if (pf == null || basePf == null || basePf <= 0) return "\u2014";
+  const ratio = pf / basePf;
+  if (ratio <= 1.05) return "baseline";
+  return `${ratio.toFixed(1)}x`;
+}
+
+/** Color for vs-baseline column: green for baseline, gradient to red for expensive */
+function vsBaselineColor(pf: number | null, basePf: number | null): string {
+  if (pf == null || basePf == null || basePf <= 0) return "#999";
+  const ratio = pf / basePf;
+  if (ratio <= 1.05) return HIGHLIGHT_GREEN;
+  if (ratio < 3) return "#558b2f";
+  if (ratio < 8) return "#c67100";
+  if (ratio < 20) return "#bf360c";
+  return "#9e2b25";
+}
+
 /** Returns a color on a green→amber→red gradient based on P/F relative to median */
 function pfColor(pf: number | null, medPf: number): string {
   if (pf == null || medPf <= 0) return "#111";
@@ -198,6 +217,12 @@ function PfBarTooltip({ active, payload }: { active?: boolean; payload?: any[] }
           <span style={{ color: "#666" }}>P/F Ratio</span>
           <span style={{ fontWeight: 700, color: HIGHLIGHT_GREEN, fontVariantNumeric: "tabular-nums" }}>{formatRatio(d.pf)}</span>
         </div>
+        {d.deviationMultiple != null && d.deviationLabel !== "baseline" && (
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+            <span style={{ color: "#666" }}>vs Lowest P/F</span>
+            <span style={{ fontWeight: 600, color: "#c67100", fontVariantNumeric: "tabular-nums" }}>{d.deviationMultiple.toFixed(1)}x more expensive</span>
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
           <span style={{ color: "#666" }}>FDV</span>
           <span style={{ fontWeight: 600, color: "#111", fontVariantNumeric: "tabular-nums" }}>{formatCompact(d.fdv)}</span>
@@ -448,6 +473,45 @@ export default function SectionBlockchainMetrics() {
     return topByFees.sort((a, b) => a.pf! - b.pf!);
   }, [scatterData, lowestPFChain]);
 
+  // Deviation data: how many multiples more expensive each peer is vs the lowest P/F chain
+  const pfDeviationData = useMemo(() => {
+    if (!lowestPFChain || lowestPFChain.pf == null) return [];
+    const basePF = lowestPFChain.pf!;
+    return pfComparisonData.map((b) => ({
+      ...b,
+      deviationMultiple: b.pf! / basePF,       // 1.0 = same as baseline, 5.0 = 5x more expensive
+      deviationLabel: b.name === lowestPFChain.name
+        ? "baseline"
+        : `${(b.pf! / basePF).toFixed(1)}x`,
+    }));
+  }, [pfComparisonData, lowestPFChain]);
+
+  // Implied valuation: what the lowest P/F chain *would* be worth at median P/F
+  const impliedValuation = useMemo(() => {
+    if (!lowestPFChain || lowestPFChain.pf == null || lowestPFChain.feesAnn <= 0) return null;
+    const basePF = lowestPFChain.pf!;
+    const currentFDV = lowestPFChain.fdv ?? 0;
+    const impliedAtMedian = lowestPFChain.feesAnn * medians.pf;
+    const impliedAtAvgTop5 = (() => {
+      const top5 = [...scatterData]
+        .filter((b) => b.pf != null && b.pf > 0 && b.name !== lowestPFChain.name)
+        .sort((a, b) => b.fees24h - a.fees24h)
+        .slice(0, 5);
+      if (top5.length === 0) return null;
+      const avgPF = top5.reduce((sum, b) => sum + b.pf!, 0) / top5.length;
+      return { fdv: lowestPFChain.feesAnn * avgPF, pf: avgPF, label: "Top 5 Avg" };
+    })();
+    const discount = currentFDV > 0 ? ((impliedAtMedian - currentFDV) / currentFDV) * 100 : null;
+    return {
+      currentFDV,
+      impliedAtMedian,
+      impliedAtAvgTop5,
+      discount,
+      basePF,
+      medianPF: medians.pf,
+    };
+  }, [lowestPFChain, medians.pf, scatterData]);
+
   // Compute medians from scatter-eligible data
   const medians = useMemo(() => {
     if (scatterData.length === 0) return { fdv: 0, ps: 0, pf: 0, feesAnn: 0, revenueAnn: 0 };
@@ -550,7 +614,7 @@ export default function SectionBlockchainMetrics() {
           padding: "16px 24px",
           backgroundColor: "#f0fdf0",
           border: `2px solid ${HIGHLIGHT_GREEN}`,
-          marginBottom: 24,
+          marginBottom: 16,
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -590,27 +654,84 @@ export default function SectionBlockchainMetrics() {
         </div>
       )}
 
-      {/* ===== P/F PEER COMPARISON BAR CHART ===== */}
-      {pfComparisonData.length > 0 && (
+      {/* ===== IMPLIED VALUATION CARD ===== */}
+      {lowestPFChain && impliedValuation && (
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          gap: 0,
+          marginBottom: 24,
+          border: "1px solid #d4d4d4",
+        }}>
+          {/* Current FDV */}
+          <div style={{ padding: "16px 20px", borderRight: "1px solid #e8e8e8" }}>
+            <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "#999", marginBottom: 6 }}>
+              Current FDV
+            </p>
+            <p style={{ fontSize: "24px", fontWeight: 700, color: "#111", fontFamily: "Georgia, serif", lineHeight: 1 }}>
+              {formatCompact(impliedValuation.currentFDV)}
+            </p>
+            <p style={{ fontSize: "11px", color: "#999", marginTop: 4 }}>
+              at {formatRatio(impliedValuation.basePF)} P/F
+            </p>
+          </div>
+          {/* Implied at Median */}
+          <div style={{ padding: "16px 20px", borderRight: "1px solid #e8e8e8", backgroundColor: "#fafff9" }}>
+            <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: HIGHLIGHT_GREEN, marginBottom: 6 }}>
+              Implied FDV at Median P/F
+            </p>
+            <p style={{ fontSize: "24px", fontWeight: 700, color: HIGHLIGHT_GREEN, fontFamily: "Georgia, serif", lineHeight: 1 }}>
+              {formatCompact(impliedValuation.impliedAtMedian)}
+            </p>
+            <p style={{ fontSize: "11px", color: "#666", marginTop: 4 }}>
+              at median {formatRatio(impliedValuation.medianPF)} P/F
+              {impliedValuation.discount != null && (
+                <span style={{ fontWeight: 700, color: HIGHLIGHT_GREEN }}>
+                  {" "}{"\u2192"} {impliedValuation.discount > 0 ? "+" : ""}{impliedValuation.discount.toFixed(0)}% upside
+                </span>
+              )}
+            </p>
+          </div>
+          {/* Implied at Top 5 Avg */}
+          {impliedValuation.impliedAtAvgTop5 && (
+            <div style={{ padding: "16px 20px" }}>
+              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "#666", marginBottom: 6 }}>
+                Implied FDV at {impliedValuation.impliedAtAvgTop5.label} P/F
+              </p>
+              <p style={{ fontSize: "24px", fontWeight: 700, color: "#111", fontFamily: "Georgia, serif", lineHeight: 1 }}>
+                {formatCompact(impliedValuation.impliedAtAvgTop5.fdv)}
+              </p>
+              <p style={{ fontSize: "11px", color: "#999", marginTop: 4 }}>
+                at {formatRatio(impliedValuation.impliedAtAvgTop5.pf)} avg P/F
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== P/F DEVIATION BAR CHART — anchored at lowest P/F ===== */}
+      {pfDeviationData.length > 0 && lowestPFChain && (
         <Card className="mb-8">
           <ChartExport
-            data={pfComparisonData.map((b) => ({
+            data={pfDeviationData.map((b) => ({
               name: b.displayName,
               type: b.chainTypeLabel,
               pf: b.pf,
               fdv: b.fdv,
               feesAnn: b.feesAnn,
+              vsLowestPF: `${b.deviationMultiple.toFixed(1)}x`,
             }))}
-            filename="blockchain-pf-comparison"
+            filename="blockchain-pf-deviation"
             title=""
           >
             <div style={{ marginBottom: 20 }}>
               <h3 style={{ fontSize: "20px", fontWeight: 700, color: "#111111", fontFamily: "Georgia, Cambria, serif", marginBottom: 4 }}>
-                Price-to-Fees Multiple — Top Fee-Generating Blockchains
+                How Much More Expensive Is Each Chain vs. {lowestPFChain.displayName}?
               </h3>
-              <p style={{ fontSize: "13px", color: "#666666", lineHeight: 1.5, maxWidth: 680 }}>
-                P/F = FDV {"\u00F7"} Annualized Fees. Lower is better — the chain generates more fee revenue
-                per dollar of fully diluted valuation. Sorted ascending by P/F multiple.
+              <p style={{ fontSize: "13px", color: "#666666", lineHeight: 1.5, maxWidth: 720 }}>
+                Each bar shows how many times more expensive a chain is relative to {lowestPFChain.displayName}{"\u2019"}s
+                {" "}{formatRatio(lowestPFChain.pf)} P/F (the baseline at 1.0x). A bar at 10x means that chain{"\u2019"}s P/F multiple
+                is 10 times higher — its valuation per dollar of fees generated is 10x richer.
               </p>
             </div>
 
@@ -630,16 +751,16 @@ export default function SectionBlockchainMetrics() {
               ))}
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px" }}>
                 <span style={{ width: 12, height: 12, backgroundColor: HIGHLIGHT_GREEN, display: "inline-block", borderRadius: "50%" }} />
-                <span style={{ fontWeight: 500, color: "#333" }}>Lowest P/F</span>
+                <span style={{ fontWeight: 600, color: HIGHLIGHT_GREEN }}>{lowestPFChain.displayName} (baseline)</span>
               </div>
             </div>
 
-            <div style={{ height: Math.max(300, pfComparisonData.length * 36 + 60) }}>
+            <div style={{ height: Math.max(300, pfDeviationData.length * 36 + 60) }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   layout="vertical"
-                  data={pfComparisonData}
-                  margin={{ top: 10, right: 80, bottom: 10, left: 0 }}
+                  data={pfDeviationData}
+                  margin={{ top: 10, right: 100, bottom: 30, left: 0 }}
                 >
                   <CartesianGrid
                     strokeDasharray="2 4"
@@ -650,16 +771,16 @@ export default function SectionBlockchainMetrics() {
                   <XAxis
                     type="number"
                     scale="log"
-                    domain={["auto", "auto"]}
-                    tickFormatter={(v: number) => formatRatio(v)}
+                    domain={[0.8, "auto"]}
+                    tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}Kx` : `${v.toFixed(v < 10 ? 1 : 0)}x`}
                     tick={{ fontSize: 10, fill: "#999999", fontFamily: "'Inter', sans-serif" }}
                     tickLine={false}
                     axisLine={{ stroke: "#d4d4d4", strokeWidth: 1 }}
                   >
                     <Label
-                      value={"P/F Multiple (log scale) \u2192 lower = better value"}
+                      value={`\u2192 times more expensive than ${lowestPFChain.displayName}`}
                       position="bottom"
-                      offset={-2}
+                      offset={6}
                       style={{ fontSize: 11, fill: "#999", fontFamily: "'Inter', sans-serif" }}
                     />
                   </XAxis>
@@ -671,17 +792,31 @@ export default function SectionBlockchainMetrics() {
                     tickLine={false}
                     axisLine={false}
                   />
-                  {/* Median P/F reference line */}
-                  {medians.pf > 0 && (
+                  {/* Baseline reference at 1.0x */}
+                  <ReferenceLine
+                    x={1}
+                    stroke={HIGHLIGHT_GREEN}
+                    strokeWidth={2}
+                    strokeOpacity={0.8}
+                  >
+                    <Label
+                      value={`${lowestPFChain.displayName}: ${formatRatio(lowestPFChain.pf)}`}
+                      position="insideTopLeft"
+                      style={{ fontSize: 10, fill: HIGHLIGHT_GREEN, fontWeight: 700, fontFamily: "'Inter', sans-serif" }}
+                      offset={4}
+                    />
+                  </ReferenceLine>
+                  {/* Median reference */}
+                  {medians.pf > 0 && lowestPFChain.pf != null && (
                     <ReferenceLine
-                      x={medians.pf}
+                      x={medians.pf / lowestPFChain.pf}
                       stroke="#111111"
                       strokeDasharray="6 4"
                       strokeWidth={1}
                       strokeOpacity={0.5}
                     >
                       <Label
-                        value={`Median: ${formatRatio(medians.pf)}`}
+                        value={`Median: ${formatRatio(medians.pf)} (${(medians.pf / lowestPFChain.pf!).toFixed(1)}x)`}
                         position="insideTopRight"
                         style={{ fontSize: 10, fill: "#111111", fontWeight: 600, fontFamily: "'Inter', sans-serif" }}
                         offset={6}
@@ -689,18 +824,17 @@ export default function SectionBlockchainMetrics() {
                     </ReferenceLine>
                   )}
                   <Tooltip content={<PfBarTooltip />} cursor={{ fill: "rgba(0,0,0,0.02)" }} />
-                  <Bar dataKey="pf" radius={[0, 2, 2, 0]} maxBarSize={24}>
+                  <Bar dataKey="deviationMultiple" radius={[0, 2, 2, 0]} maxBarSize={24}>
                     <LabelList
-                      dataKey="pf"
+                      dataKey="deviationLabel"
                       position="right"
-                      formatter={(v: number) => formatRatio(v)}
                       style={{ fontSize: 10, fontWeight: 600, fontFamily: "'Inter', sans-serif", fill: "#666" }}
                     />
-                    {pfComparisonData.map((entry, idx) => (
+                    {pfDeviationData.map((entry, idx) => (
                       <Cell
                         key={idx}
-                        fill={lowestPFChain && entry.name === lowestPFChain.name ? HIGHLIGHT_GREEN : entry.color}
-                        fillOpacity={lowestPFChain && entry.name === lowestPFChain.name ? 1 : 0.7}
+                        fill={entry.name === lowestPFChain.name ? HIGHLIGHT_GREEN : entry.color}
+                        fillOpacity={entry.name === lowestPFChain.name ? 1 : 0.7}
                       />
                     ))}
                   </Bar>
@@ -1091,6 +1225,7 @@ export default function SectionBlockchainMetrics() {
                   <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>FDV</th>
                   <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>P/S</th>
                   <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>P/F</th>
+                  {lowestPFChain && <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: HIGHLIGHT_GREEN }}>vs {lowestPFChain.displayName}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -1116,6 +1251,7 @@ export default function SectionBlockchainMetrics() {
                     <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatCompact(b.fdv)}</td>
                     <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{formatRatio(b.ps)}</td>
                     <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: pfColor(b.pf, medians.pf) }}>{formatRatio(b.pf)}</td>
+                    {lowestPFChain && <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: vsBaselineColor(b.pf, lowestPFChain.pf) }}>{formatVsBaseline(b.pf, lowestPFChain.pf)}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -1139,6 +1275,7 @@ export default function SectionBlockchainMetrics() {
                   <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Fees (Ann.)</th>
                   <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>P/S</th>
                   <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>P/F</th>
+                  {lowestPFChain && <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: HIGHLIGHT_GREEN }}>vs {lowestPFChain.displayName}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -1164,6 +1301,7 @@ export default function SectionBlockchainMetrics() {
                     <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatCompact(b.feesAnn)}</td>
                     <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: "#2e7d32" }}>{formatRatio(b.ps)}</td>
                     <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: pfColor(b.pf, medians.pf) }}>{formatRatio(b.pf)}</td>
+                    {lowestPFChain && <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: vsBaselineColor(b.pf, lowestPFChain.pf) }}>{formatVsBaseline(b.pf, lowestPFChain.pf)}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -1187,6 +1325,7 @@ export default function SectionBlockchainMetrics() {
                   <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Revenue (Ann.)</th>
                   <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>P/F</th>
                   <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>P/S</th>
+                  {lowestPFChain && <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: HIGHLIGHT_GREEN }}>vs {lowestPFChain.displayName}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -1212,6 +1351,7 @@ export default function SectionBlockchainMetrics() {
                     <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatCompact(b.revenueAnn)}</td>
                     <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: pfColor(b.pf, medians.pf) }}>{formatRatio(b.pf)}</td>
                     <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{formatRatio(b.ps)}</td>
+                    {lowestPFChain && <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: vsBaselineColor(b.pf, lowestPFChain.pf) }}>{formatVsBaseline(b.pf, lowestPFChain.pf)}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -1237,6 +1377,7 @@ export default function SectionBlockchainMetrics() {
                   <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>Rev. (Ann.)</th>
                   <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>P/S</th>
                   <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#999999" }}>P/F</th>
+                  {lowestPFChain && <th style={{ textAlign: "right", padding: "8px 12px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: HIGHLIGHT_GREEN }}>vs {lowestPFChain.displayName}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -1270,6 +1411,7 @@ export default function SectionBlockchainMetrics() {
                       <td style={{ padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatCompact(b.revenueAnn)}</td>
                       <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: b.ps != null && b.ps < medians.ps ? "#2e7d32" : "#111" }}>{formatRatio(b.ps)}</td>
                       <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: pfColor(b.pf, medians.pf) }}>{formatRatio(b.pf)}</td>
+                      {lowestPFChain && <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: vsBaselineColor(b.pf, lowestPFChain.pf) }}>{formatVsBaseline(b.pf, lowestPFChain.pf)}</td>}
                     </tr>
                   );
                 })}
