@@ -13,6 +13,7 @@ import {
   Cell,
   ReferenceLine,
   Label,
+  Customized,
 } from "recharts";
 import { useDataContext } from "@/lib/DataContext";
 import { findProtocolMapping } from "@/lib/protocolTokenMap";
@@ -59,15 +60,13 @@ const BLOCKCHAIN_CATEGORIES = new Set([
   "Modular Blockchain", "Optimistic Rollup", "ZK Rollup", "Validium", "Appchain",
 ]);
 
-// Subcategory type: L1 or L2
 const L2_CATEGORIES = new Set([
   "Rollup", "L2", "Optimistic Rollup", "ZK Rollup", "Validium", "Appchain", "Sidechain",
 ]);
 
-// Colors for L1 vs L2
 const CHAIN_TYPE_COLORS: Record<string, string> = {
-  L1: "#e07714",  // deep amber
-  L2: "#2563eb",  // blue
+  L1: "#e07714",
+  L2: "#2563eb",
   Other: "#94a3b8",
 };
 
@@ -84,9 +83,9 @@ const CHAIN_TYPE_LABELS: Record<string, string> = {
 interface EnrichedBlockchain {
   name: string;
   displayName: string;
-  chainType: string; // "L1" | "L2" | "Other"
+  chainType: string;
   chainTypeLabel: string;
-  subcategory: string; // raw DefiLlama category
+  subcategory: string;
   color: string;
   tokenSymbol: string | null;
   fees24h: number;
@@ -101,7 +100,7 @@ interface EnrichedBlockchain {
 }
 
 // ---------------------------------------------------------------------------
-// Custom Tooltips
+// Tooltip (shared across both scatter charts)
 // ---------------------------------------------------------------------------
 
 const tooltipStyle: React.CSSProperties = {
@@ -116,7 +115,7 @@ const tooltipStyle: React.CSSProperties = {
   fontFamily: "'Inter', -apple-system, sans-serif",
 };
 
-function PSTooltip({
+function ChainScatterTooltip({
   active,
   payload,
 }: {
@@ -132,53 +131,7 @@ function PSTooltip({
         {d.tokenSymbol && <span style={{ fontWeight: 400, color: "#999", fontSize: "12px" }}> ({d.tokenSymbol})</span>}
       </p>
       <p style={{ fontSize: "10px", color: "#999999", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-        {d.chainTypeLabel} \u00B7 {d.subcategory}
-      </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-          <span style={{ color: "#666" }}>FDV</span>
-          <span style={{ fontWeight: 600, color: "#111", fontVariantNumeric: "tabular-nums" }}>{formatCompact(d.fdv)}</span>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-          <span style={{ color: "#666" }}>Revenue (Ann.)</span>
-          <span style={{ fontWeight: 600, color: "#111", fontVariantNumeric: "tabular-nums" }}>{formatCompact(d.revenueAnn)}</span>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-          <span style={{ color: "#666" }}>Fees (24h)</span>
-          <span style={{ fontWeight: 600, color: "#111", fontVariantNumeric: "tabular-nums" }}>{formatCompact(d.fees24h)}</span>
-        </div>
-        {d.margin != null && (
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-            <span style={{ color: "#666" }}>Margin</span>
-            <span style={{ fontWeight: 600, color: "#111", fontVariantNumeric: "tabular-nums" }}>{(d.margin * 100).toFixed(1)}%</span>
-          </div>
-        )}
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 16, paddingTop: 4, borderTop: "1px solid #eee" }}>
-          <span style={{ color: "#666", fontWeight: 600 }}>P/S Ratio</span>
-          <span style={{ fontWeight: 700, color: "#111", fontVariantNumeric: "tabular-nums" }}>{formatRatio(d.ps)}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PFTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: Array<{ payload: EnrichedBlockchain }>;
-}) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0].payload;
-  return (
-    <div style={tooltipStyle}>
-      <p style={{ fontWeight: 700, color: "#111111", marginBottom: 2, fontFamily: "Georgia, serif", fontSize: "14px" }}>
-        {d.displayName}
-        {d.tokenSymbol && <span style={{ fontWeight: 400, color: "#999", fontSize: "12px" }}> ({d.tokenSymbol})</span>}
-      </p>
-      <p style={{ fontSize: "10px", color: "#999999", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-        {d.chainTypeLabel} \u00B7 {d.subcategory}
+        {d.chainTypeLabel} {"\u00B7"} {d.subcategory}
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
@@ -190,8 +143,8 @@ function PFTooltip({
           <span style={{ fontWeight: 600, color: "#111", fontVariantNumeric: "tabular-nums" }}>{formatCompact(d.feesAnn)}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-          <span style={{ color: "#666" }}>Fees (24h)</span>
-          <span style={{ fontWeight: 600, color: "#111", fontVariantNumeric: "tabular-nums" }}>{formatCompact(d.fees24h)}</span>
+          <span style={{ color: "#666" }}>Revenue (Ann.)</span>
+          <span style={{ fontWeight: 600, color: "#111", fontVariantNumeric: "tabular-nums" }}>{formatCompact(d.revenueAnn)}</span>
         </div>
         {d.margin != null && (
           <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
@@ -199,12 +152,114 @@ function PFTooltip({
             <span style={{ fontWeight: 600, color: "#111", fontVariantNumeric: "tabular-nums" }}>{(d.margin * 100).toFixed(1)}%</span>
           </div>
         )}
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 16, paddingTop: 4, borderTop: "1px solid #eee" }}>
-          <span style={{ color: "#666", fontWeight: 600 }}>P/F Ratio</span>
-          <span style={{ fontWeight: 700, color: "#111", fontVariantNumeric: "tabular-nums" }}>{formatRatio(d.pf)}</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 5, paddingTop: 6, borderTop: "1px solid #eee" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+            <span style={{ color: "#666", fontWeight: 600 }}>P/F Ratio</span>
+            <span style={{ fontWeight: 700, color: "#111", fontVariantNumeric: "tabular-nums" }}>{formatRatio(d.pf)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+            <span style={{ color: "#666", fontWeight: 600 }}>P/S Ratio</span>
+            <span style={{ fontWeight: 700, color: "#111", fontVariantNumeric: "tabular-nums" }}>{formatRatio(d.ps)}</span>
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Diagonal ratio reference lines (rendered via Customized)
+// ---------------------------------------------------------------------------
+// On a log-log scatter of Metric vs FDV, a constant ratio line
+// (ratio = FDV / Metric) appears as a diagonal: Metric = FDV / ratio.
+// Chains ABOVE the line have a lower ratio (cheaper).
+// Chains BELOW the line have a higher ratio (more expensive).
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function RatioLines(props: any) {
+  const { xAxisMap, yAxisMap } = props;
+  if (!xAxisMap || !yAxisMap) return null;
+
+  const xAxisKey = Object.keys(xAxisMap)[0];
+  const yAxisKey = Object.keys(yAxisMap)[0];
+  const xAxis = xAxisMap[xAxisKey];
+  const yAxis = yAxisMap[yAxisKey];
+  if (!xAxis?.scale || !yAxis?.scale) return null;
+
+  const xScale = xAxis.scale;
+  const yScale = yAxis.scale;
+  const [xMin, xMax] = xScale.domain();
+  const [yMax, yMin] = yScale.domain(); // y-axis: domain[0]=top(max), domain[1]=bottom(min) for inverted
+
+  // Handle both orientations — pick actual min/max
+  const yLo = Math.min(yMin, yMax);
+  const yHi = Math.max(yMin, yMax);
+
+  const { ratios, color, labelSuffix } = props;
+  if (!ratios || !Array.isArray(ratios)) return null;
+
+  return (
+    <g>
+      {(ratios as number[]).map((ratio: number) => {
+        // ratio = FDV / metric  =>  metric = FDV / ratio
+        // Clamp the line to the visible chart area
+        const lxMin = Math.max(xMin, yLo * ratio);
+        const lxMax = Math.min(xMax, yHi * ratio);
+        if (lxMin >= lxMax) return null;
+
+        const lyMin = lxMin / ratio;
+        const lyMax = lxMax / ratio;
+        if (lyMin <= 0 || lyMax <= 0) return null;
+
+        const px1 = xScale(lxMin);
+        const py1 = yScale(lyMin);
+        const px2 = xScale(lxMax);
+        const py2 = yScale(lyMax);
+
+        // Label at the top-right end of the line
+        const ratioLabel = ratio >= 1000 ? `${ratio / 1000}Kx` : `${ratio}x`;
+
+        return (
+          <g key={ratio}>
+            <line
+              x1={px1}
+              y1={py1}
+              x2={px2}
+              y2={py2}
+              stroke={color || "#bbb"}
+              strokeDasharray="6 3"
+              strokeWidth={0.8}
+              strokeOpacity={0.6}
+            />
+            <text
+              x={px2 + 4}
+              y={py2 + 3}
+              fill={color || "#999"}
+              fontSize={8}
+              fontFamily="'Inter', sans-serif"
+              dominantBaseline="central"
+            >
+              {ratioLabel}
+            </text>
+          </g>
+        );
+      })}
+      {/* Axis label for what the ratio means */}
+      {labelSuffix && (
+        <text
+          x={xScale(xMax)}
+          y={yScale(yHi) - 8}
+          fill={color || "#999"}
+          fontSize={9}
+          fontFamily="'Inter', sans-serif"
+          textAnchor="end"
+          fontStyle="italic"
+        >
+          {labelSuffix}
+        </text>
+      )}
+    </g>
   );
 }
 
@@ -220,7 +275,7 @@ export default function SectionBlockchainMetrics() {
   const allBlockchains = useMemo(() => {
     if (!hasLiveFees || !ctx.fees) return [];
 
-    // ── CoinGecko lookup maps ──
+    // -- CoinGecko lookup maps --
     const tokenById = new Map<string, { marketCap: number; fullyDilutedValuation: number | null; totalVolume24h: number }>();
     const tokenByName = new Map<string, { marketCap: number; fullyDilutedValuation: number | null; totalVolume24h: number }>();
     const tokenBySymbol = new Map<string, { marketCap: number; fullyDilutedValuation: number | null; totalVolume24h: number }>();
@@ -230,7 +285,7 @@ export default function SectionBlockchainMetrics() {
       if (t.symbol) tokenBySymbol.set(t.symbol.toLowerCase(), t);
     }
 
-    // ── DefiLlama TVL lookup maps (comprehensive key variants) ──
+    // -- DefiLlama TVL lookup maps --
     const tvlByKey = new Map<string, { mcap: number | null; fdv: number | null }>();
     for (const t of ctx.tvl?.allProtocolsTVL ?? []) {
       const keys = [
@@ -244,7 +299,7 @@ export default function SectionBlockchainMetrics() {
       }
     }
 
-    // ── Chain slug set from PROTOCOL_CATEGORY_OVERRIDES ──
+    // -- Chain slug set from PROTOCOL_CATEGORY_OVERRIDES --
     const chainSlugs = new Set<string>();
     for (const [slug, cat] of Object.entries(PROTOCOL_CATEGORY_OVERRIDES)) {
       if (cat === "Chain") chainSlugs.add(slug.toLowerCase());
@@ -260,7 +315,7 @@ export default function SectionBlockchainMetrics() {
       const nameKey = p.name.toLowerCase().replace(/\s+/g, "-");
       const displayKey = (p.displayName || "").toLowerCase().replace(/\s+/g, "-");
 
-      // Accept protocol if ANY of these identify it as a blockchain:
+      // Accept protocol if ANY source identifies it as a blockchain
       const isBlockchain =
         BLOCKCHAIN_CATEGORIES.has(cat) ||
         (mapping != null && mapping.categoryGroup === "Blockchains") ||
@@ -279,8 +334,7 @@ export default function SectionBlockchainMetrics() {
         chainType = "L1";
       }
 
-      // ── FDV matching: try every available path ──
-      // CoinGecko: try coinGeckoId from mapping, then name variants
+      // -- FDV matching: CoinGecko primary, DefiLlama TVL fallback --
       let tokenMatch = mapping?.coinGeckoId
         ? tokenById.get(mapping.coinGeckoId.toLowerCase()) ?? null
         : null;
@@ -295,7 +349,6 @@ export default function SectionBlockchainMetrics() {
           null;
       }
 
-      // DefiLlama TVL: try name, slug, displayName, and defiLlamaName from mapping
       const tvlMatch =
         tvlByKey.get(p.name.toLowerCase()) ??
         tvlByKey.get(slug) ??
@@ -311,14 +364,12 @@ export default function SectionBlockchainMetrics() {
       const revenue24h = p.revenue24h ?? 0;
       const revenueAnn = revenue24h > 0 ? revenue24h * 365 : feesAnn;
 
+      // Compute ratios (no outlier filtering — used in tables/tooltips)
       let ps: number | null = null;
       let pf: number | null = null;
       if (fdv != null && fdv > 0) {
         ps = revenueAnn > 0 ? fdv / revenueAnn : null;
         pf = feesAnn > 0 ? fdv / feesAnn : null;
-        // Filter extreme outliers from scatter (but still keep in tables)
-        if (ps != null && (ps > 5000 || ps < 0.01)) ps = null;
-        if (pf != null && (pf > 5000 || pf < 0.01)) pf = null;
       }
 
       const margin = (p.revenue24h != null && p.total24h > 0)
@@ -345,24 +396,25 @@ export default function SectionBlockchainMetrics() {
       });
     }
 
-    // Sort by fees (descending) as primary sort — works for all chains regardless of FDV
     results.sort((a, b) => b.fees24h - a.fees24h);
     return results;
   }, [hasLiveFees, ctx.fees, ctx.coinGecko, ctx.tvl]);
 
-  // Chains with FDV data (for scatter plots)
+  // Chains with FDV data — for scatter plots (only need FDV > 0 + fees > 0)
   const scatterData = useMemo(() =>
-    allBlockchains.filter((b) => b.fdv != null && b.ps != null && b.pf != null),
+    allBlockchains.filter((b) => b.fdv != null && b.fdv > 0 && b.feesAnn > 0),
     [allBlockchains]
   );
 
-  // Compute medians (from scatter-eligible data only)
+  // Compute medians from scatter-eligible data
   const medians = useMemo(() => {
     if (scatterData.length === 0) return { fdv: 0, ps: 0, pf: 0, feesAnn: 0, revenueAnn: 0 };
+    const psVals = scatterData.filter((p) => p.ps != null).map((p) => p.ps!);
+    const pfVals = scatterData.filter((p) => p.pf != null).map((p) => p.pf!);
     return {
       fdv: median(scatterData.map((p) => p.fdv!)),
-      ps: median(scatterData.map((p) => p.ps!)),
-      pf: median(scatterData.map((p) => p.pf!)),
+      ps: psVals.length > 0 ? median(psVals) : 0,
+      pf: pfVals.length > 0 ? median(pfVals) : 0,
       feesAnn: median(scatterData.map((p) => p.feesAnn)),
       revenueAnn: median(scatterData.map((p) => p.revenueAnn)),
     };
@@ -374,8 +426,10 @@ export default function SectionBlockchainMetrics() {
     const l1Count = allBlockchains.filter((b) => b.chainType === "L1").length;
     const l2Count = allBlockchains.filter((b) => b.chainType === "L2").length;
     const withFDV = scatterData;
-    const lowestPS = [...withFDV].sort((a, b) => a.ps! - b.ps!).slice(0, 5);
-    const lowestPF = [...withFDV].sort((a, b) => a.pf! - b.pf!).slice(0, 5);
+    const withPS = withFDV.filter((b) => b.ps != null);
+    const withPF = withFDV.filter((b) => b.pf != null);
+    const lowestPS = [...withPS].sort((a, b) => a.ps! - b.ps!).slice(0, 5);
+    const lowestPF = [...withPF].sort((a, b) => a.pf! - b.pf!).slice(0, 5);
     const highestFees = [...allBlockchains].sort((a, b) => b.fees24h - a.fees24h).slice(0, 5);
     return { l1Count, l2Count, lowestPS, lowestPF, highestFees, total: allBlockchains.length, withFDV: withFDV.length };
   }, [allBlockchains, scatterData]);
@@ -385,12 +439,16 @@ export default function SectionBlockchainMetrics() {
   const chainTypes = Array.from(new Set(allBlockchains.map((b) => b.chainType)));
   const scatterChainTypes = Array.from(new Set(scatterData.map((b) => b.chainType)));
 
+  // Ratio lines to draw on the diagonal (P/F and P/S)
+  const PF_RATIOS = [10, 50, 200, 1000];
+  const PS_RATIOS = [10, 50, 200, 1000];
+
   return (
     <section className="mb-16">
       <SectionHeader
         number="8"
         title="Blockchain Valuation Multiples"
-        subtitle="Comparing all L1 and L2 blockchain valuations against their fee and revenue generation. Chains below the median ratio lines may represent relative value."
+        subtitle="Comparing all L1 and L2 blockchain valuations against their fee and revenue generation. Diagonal lines represent constant valuation multiples."
       />
 
       {/* Summary Stats Row */}
@@ -403,7 +461,7 @@ export default function SectionBlockchainMetrics() {
             {stats?.total}
           </p>
           <p style={{ fontSize: "11px", color: "#999", marginTop: 4 }}>
-            {stats?.l1Count} L1 \u00B7 {stats?.l2Count} L2 \u00B7 {stats?.withFDV} w/ FDV
+            {stats?.l1Count} L1 {"\u00B7"} {stats?.l2Count} L2 {"\u00B7"} {stats?.withFDV} w/ FDV
           </p>
         </div>
         <div style={{ padding: "16px 20px", backgroundColor: "#fffff8", border: "1px solid #d4d4d4" }}>
@@ -440,191 +498,7 @@ export default function SectionBlockchainMetrics() {
         </div>
       </div>
 
-      {/* ===== CHART 1: P/S vs FDV ===== */}
-      <Card className="mb-8">
-        <ChartExport
-          data={scatterData.map((b) => ({
-            name: b.displayName,
-            type: b.chainTypeLabel,
-            symbol: b.tokenSymbol,
-            fdv: b.fdv,
-            revenueAnn: b.revenueAnn,
-            fees24h: b.fees24h,
-            ps: b.ps,
-          }))}
-          filename="blockchain-ps-vs-fdv"
-          title=""
-        >
-          <div style={{ marginBottom: 20 }}>
-            <h3 style={{ fontSize: "20px", fontWeight: 700, color: "#111111", fontFamily: "Georgia, Cambria, serif", marginBottom: 4 }}>
-              Blockchain Price-to-Sales vs. Fully Diluted Valuation
-            </h3>
-            <p style={{ fontSize: "13px", color: "#666666", lineHeight: 1.5, maxWidth: 640 }}>
-              Every dot is a blockchain (L1 or L2). Bubble size reflects daily fee generation.
-              Dashed lines mark median values across {stats?.withFDV} chains with FDV data
-              ({stats?.total} total blockchains tracked).
-            </p>
-          </div>
-
-          {/* Legend */}
-          <div style={{ display: "flex", gap: 20, marginBottom: 16 }}>
-            {scatterChainTypes.map((ct) => (
-              <div key={ct} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px" }}>
-                <span style={{
-                  width: 12,
-                  height: 12,
-                  backgroundColor: CHAIN_TYPE_COLORS[ct] || "#94a3b8",
-                  display: "inline-block",
-                  border: "1px solid rgba(0,0,0,0.08)",
-                  borderRadius: "50%",
-                }} />
-                <span style={{ fontWeight: 500, color: "#333" }}>{CHAIN_TYPE_LABELS[ct] || ct}</span>
-                <span style={{ fontSize: "10px", color: "#999" }}>
-                  ({scatterData.filter((b) => b.chainType === ct).length})
-                </span>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ height: 520 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 30, right: 30, bottom: 50, left: 80 }}>
-                <CartesianGrid
-                  strokeDasharray="2 4"
-                  stroke="#e8e8e8"
-                  strokeOpacity={0.7}
-                />
-                <XAxis
-                  type="number"
-                  dataKey="fdv"
-                  name="FDV"
-                  scale="log"
-                  domain={["auto", "auto"]}
-                  tickFormatter={(v: number) => formatCompact(v)}
-                  tick={{ fontSize: 11, fill: "#999999", fontFamily: "'Inter', sans-serif" }}
-                  tickLine={false}
-                  axisLine={{ stroke: "#d4d4d4", strokeWidth: 1 }}
-                >
-                  <Label
-                    value="Fully Diluted Valuation \u2192"
-                    position="bottom"
-                    offset={20}
-                    style={{ fontSize: 12, fill: "#666666", fontWeight: 500, fontFamily: "'Inter', sans-serif" }}
-                  />
-                </XAxis>
-                <YAxis
-                  type="number"
-                  dataKey="ps"
-                  name="P/S"
-                  scale="log"
-                  domain={["auto", "auto"]}
-                  tickFormatter={(v: number) => `${v.toFixed(0)}x`}
-                  tick={{ fontSize: 11, fill: "#999999", fontFamily: "'Inter', sans-serif" }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={65}
-                >
-                  <Label
-                    value="P/S Ratio \u2192"
-                    angle={-90}
-                    position="insideLeft"
-                    offset={-10}
-                    style={{ fontSize: 12, fill: "#666666", fontWeight: 500, fontFamily: "'Inter', sans-serif" }}
-                  />
-                </YAxis>
-                <ZAxis
-                  type="number"
-                  dataKey="fees24h"
-                  range={[40, 600]}
-                />
-                {/* Median FDV — vertical */}
-                <ReferenceLine
-                  x={medians.fdv}
-                  stroke="#111111"
-                  strokeDasharray="6 4"
-                  strokeWidth={1}
-                  strokeOpacity={0.5}
-                >
-                  <Label
-                    value={`Median FDV: ${formatCompact(medians.fdv)}`}
-                    position="insideTopRight"
-                    style={{ fontSize: 10, fill: "#111111", fontWeight: 600, fontFamily: "'Inter', sans-serif" }}
-                    offset={8}
-                  />
-                </ReferenceLine>
-                {/* Median P/S — horizontal */}
-                <ReferenceLine
-                  y={medians.ps}
-                  stroke="#111111"
-                  strokeDasharray="6 4"
-                  strokeWidth={1}
-                  strokeOpacity={0.5}
-                >
-                  <Label
-                    value={`Median P/S: ${formatRatio(medians.ps)}`}
-                    position="insideTopRight"
-                    style={{ fontSize: 10, fill: "#111111", fontWeight: 600, fontFamily: "'Inter', sans-serif" }}
-                    offset={8}
-                  />
-                </ReferenceLine>
-                <Tooltip
-                  content={<PSTooltip />}
-                  cursor={{ stroke: "#d4d4d4", strokeDasharray: "3 3" }}
-                />
-                <Scatter data={scatterData} shape="circle">
-                  {scatterData.map((entry, idx) => (
-                    <Cell key={idx} fill={entry.color} fillOpacity={0.7} stroke={entry.color} strokeWidth={1.5} />
-                  ))}
-                </Scatter>
-              </ScatterChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Quadrant interpretation */}
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 0,
-            marginTop: 16,
-            border: "1px solid #e8e8e8",
-          }}>
-            <div style={{ padding: "10px 14px", borderRight: "1px solid #e8e8e8", borderBottom: "1px solid #e8e8e8" }}>
-              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#9e2b25", marginBottom: 2 }}>
-                {"\u2196"} High P/S, Low FDV
-              </p>
-              <p style={{ fontSize: "11px", color: "#666", lineHeight: 1.4 }}>
-                Smaller chains with expensive multiples relative to revenue
-              </p>
-            </div>
-            <div style={{ padding: "10px 14px", borderBottom: "1px solid #e8e8e8" }}>
-              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#c67100", marginBottom: 2 }}>
-                {"\u2197"} High P/S, High FDV
-              </p>
-              <p style={{ fontSize: "11px", color: "#666", lineHeight: 1.4 }}>
-                Major chains priced for aggressive growth expectations
-              </p>
-            </div>
-            <div style={{ padding: "10px 14px", borderRight: "1px solid #e8e8e8" }}>
-              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#666666", marginBottom: 2 }}>
-                {"\u2199"} Low P/S, Low FDV
-              </p>
-              <p style={{ fontSize: "11px", color: "#666", lineHeight: 1.4 }}>
-                Smaller chains with modest valuations and reasonable multiples
-              </p>
-            </div>
-            <div style={{ padding: "10px 14px" }}>
-              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2e7d32", marginBottom: 2 }}>
-                {"\u2198"} Low P/S, High FDV
-              </p>
-              <p style={{ fontSize: "11px", color: "#666", lineHeight: 1.4 }}>
-                Large, revenue-efficient chains with attractive multiples
-              </p>
-            </div>
-          </div>
-        </ChartExport>
-      </Card>
-
-      {/* ===== CHART 2: P/F vs FDV ===== */}
+      {/* ===== CHART 1: Annualized Fees vs FDV ===== */}
       <Card className="mb-8">
         <ChartExport
           data={scatterData.map((b) => ({
@@ -633,24 +507,31 @@ export default function SectionBlockchainMetrics() {
             symbol: b.tokenSymbol,
             fdv: b.fdv,
             feesAnn: b.feesAnn,
-            fees24h: b.fees24h,
+            revenueAnn: b.revenueAnn,
             pf: b.pf,
+            ps: b.ps,
           }))}
-          filename="blockchain-pf-vs-fdv"
+          filename="blockchain-fees-vs-fdv"
           title=""
         >
           <div style={{ marginBottom: 20 }}>
             <h3 style={{ fontSize: "20px", fontWeight: 700, color: "#111111", fontFamily: "Georgia, Cambria, serif", marginBottom: 4 }}>
-              Blockchain Price-to-Fees vs. Fully Diluted Valuation
+              Annualized Fees vs. Fully Diluted Valuation
             </h3>
-            <p style={{ fontSize: "13px", color: "#666666", lineHeight: 1.5, maxWidth: 640 }}>
-              P/F uses total fees (what users pay to use the chain) instead of protocol revenue.
-              Chains with low P/F multiples generate high fees relative to their valuation.
+            <p style={{ fontSize: "13px", color: "#666666", lineHeight: 1.5, maxWidth: 680 }}>
+              Each dot is a blockchain (L1 or L2). Diagonal lines mark constant Price-to-Fees (P/F) multiples.
+              Chains <strong>above</strong> a line generate more fees per dollar of FDV (cheaper valuation);
+              chains <strong>below</strong> generate fewer (more expensive).
+              {stats && stats.withFDV < stats.total && (
+                <span style={{ color: "#999" }}>
+                  {" "}Showing {stats.withFDV} of {stats.total} chains with FDV data.
+                </span>
+              )}
             </p>
           </div>
 
           {/* Legend */}
-          <div style={{ display: "flex", gap: 20, marginBottom: 16 }}>
+          <div style={{ display: "flex", gap: 20, marginBottom: 16, flexWrap: "wrap" }}>
             {scatterChainTypes.map((ct) => (
               <div key={ct} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px" }}>
                 <span style={{
@@ -667,11 +548,15 @@ export default function SectionBlockchainMetrics() {
                 </span>
               </div>
             ))}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px" }}>
+              <span style={{ width: 20, height: 0, borderTop: "2px dashed #b0b0b0", display: "inline-block" }} />
+              <span style={{ fontWeight: 500, color: "#999" }}>P/F multiple</span>
+            </div>
           </div>
 
-          <div style={{ height: 520 }}>
+          <div style={{ height: 540 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 30, right: 30, bottom: 50, left: 80 }}>
+              <ScatterChart margin={{ top: 30, right: 60, bottom: 50, left: 80 }}>
                 <CartesianGrid
                   strokeDasharray="2 4"
                   stroke="#e8e8e8"
@@ -689,7 +574,7 @@ export default function SectionBlockchainMetrics() {
                   axisLine={{ stroke: "#d4d4d4", strokeWidth: 1 }}
                 >
                   <Label
-                    value="Fully Diluted Valuation \u2192"
+                    value={"Fully Diluted Valuation \u2192"}
                     position="bottom"
                     offset={20}
                     style={{ fontSize: 12, fill: "#666666", fontWeight: 500, fontFamily: "'Inter', sans-serif" }}
@@ -697,36 +582,43 @@ export default function SectionBlockchainMetrics() {
                 </XAxis>
                 <YAxis
                   type="number"
-                  dataKey="pf"
-                  name="P/F"
+                  dataKey="feesAnn"
+                  name="Fees (Ann.)"
                   scale="log"
                   domain={["auto", "auto"]}
-                  tickFormatter={(v: number) => `${v.toFixed(0)}x`}
+                  tickFormatter={(v: number) => formatCompact(v)}
                   tick={{ fontSize: 11, fill: "#999999", fontFamily: "'Inter', sans-serif" }}
                   tickLine={false}
                   axisLine={false}
                   width={65}
                 >
                   <Label
-                    value="P/F Ratio \u2192"
+                    value={"Annualized Fees \u2192"}
                     angle={-90}
                     position="insideLeft"
                     offset={-10}
                     style={{ fontSize: 12, fill: "#666666", fontWeight: 500, fontFamily: "'Inter', sans-serif" }}
                   />
                 </YAxis>
-                <ZAxis
-                  type="number"
-                  dataKey="fees24h"
-                  range={[40, 600]}
+                <ZAxis range={[70, 70]} />
+                {/* P/F ratio diagonal reference lines */}
+                <Customized
+                  component={(chartProps: Record<string, unknown>) => (
+                    <RatioLines
+                      {...chartProps}
+                      ratios={PF_RATIOS}
+                      color="#b0b0b0"
+                      labelSuffix={"P/F multiples \u2191 cheaper"}
+                    />
+                  )}
                 />
-                {/* Median FDV — vertical */}
+                {/* Median FDV vertical reference */}
                 <ReferenceLine
                   x={medians.fdv}
                   stroke="#111111"
                   strokeDasharray="6 4"
                   strokeWidth={1}
-                  strokeOpacity={0.5}
+                  strokeOpacity={0.3}
                 >
                   <Label
                     value={`Median FDV: ${formatCompact(medians.fdv)}`}
@@ -735,51 +627,20 @@ export default function SectionBlockchainMetrics() {
                     offset={8}
                   />
                 </ReferenceLine>
-                {/* Median P/F — horizontal */}
-                <ReferenceLine
-                  y={medians.pf}
-                  stroke="#111111"
-                  strokeDasharray="6 4"
-                  strokeWidth={1}
-                  strokeOpacity={0.5}
-                >
-                  <Label
-                    value={`Median P/F: ${formatRatio(medians.pf)}`}
-                    position="insideTopRight"
-                    style={{ fontSize: 10, fill: "#111111", fontWeight: 600, fontFamily: "'Inter', sans-serif" }}
-                    offset={8}
-                  />
-                </ReferenceLine>
-                {/* Median Fee Generation */}
-                <ReferenceLine
-                  y={medians.feesAnn > 0 ? medians.fdv / medians.feesAnn : undefined}
-                  stroke="#0274B6"
-                  strokeDasharray="4 6"
-                  strokeWidth={1}
-                  strokeOpacity={0.4}
-                  ifOverflow="extendDomain"
-                >
-                  <Label
-                    value={`Median Fee Gen.: ${formatCompact(medians.feesAnn)}/yr`}
-                    position="insideBottomRight"
-                    style={{ fontSize: 10, fill: "#0274B6", fontWeight: 600, fontFamily: "'Inter', sans-serif" }}
-                    offset={8}
-                  />
-                </ReferenceLine>
                 <Tooltip
-                  content={<PFTooltip />}
+                  content={<ChainScatterTooltip />}
                   cursor={{ stroke: "#d4d4d4", strokeDasharray: "3 3" }}
                 />
                 <Scatter data={scatterData} shape="circle">
                   {scatterData.map((entry, idx) => (
-                    <Cell key={idx} fill={entry.color} fillOpacity={0.7} stroke={entry.color} strokeWidth={1.5} />
+                    <Cell key={idx} fill={entry.color} fillOpacity={0.75} stroke={entry.color} strokeWidth={1.5} />
                   ))}
                 </Scatter>
               </ScatterChart>
             </ResponsiveContainer>
           </div>
 
-          {/* Quadrant interpretation */}
+          {/* Interpretation guide */}
           <div style={{
             display: "grid",
             gridTemplateColumns: "1fr 1fr",
@@ -788,42 +649,228 @@ export default function SectionBlockchainMetrics() {
             border: "1px solid #e8e8e8",
           }}>
             <div style={{ padding: "10px 14px", borderRight: "1px solid #e8e8e8", borderBottom: "1px solid #e8e8e8" }}>
-              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#9e2b25", marginBottom: 2 }}>
-                {"\u2196"} High P/F, Low FDV
+              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2e7d32", marginBottom: 2 }}>
+                {"\u2196"} High Fees, Low FDV
               </p>
               <p style={{ fontSize: "11px", color: "#666", lineHeight: 1.4 }}>
-                Small chains generating minimal fees relative to their valuation
+                Chains generating significant fees at modest valuations — potential value plays
               </p>
             </div>
             <div style={{ padding: "10px 14px", borderBottom: "1px solid #e8e8e8" }}>
-              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#c67100", marginBottom: 2 }}>
-                {"\u2197"} High P/F, High FDV
+              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#111111", marginBottom: 2 }}>
+                {"\u2197"} High Fees, High FDV
               </p>
               <p style={{ fontSize: "11px", color: "#666", lineHeight: 1.4 }}>
-                Highly valued chains with low fee capture \u2014 narrative-driven pricing
+                Dominant chains with strong fee generation and large market presence
               </p>
             </div>
             <div style={{ padding: "10px 14px", borderRight: "1px solid #e8e8e8" }}>
               <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#666666", marginBottom: 2 }}>
-                {"\u2199"} Low P/F, Low FDV
+                {"\u2199"} Low Fees, Low FDV
               </p>
               <p style={{ fontSize: "11px", color: "#666", lineHeight: 1.4 }}>
-                Under-the-radar fee generators with modest market presence
+                Small, early-stage chains with modest fee generation and valuation
               </p>
             </div>
             <div style={{ padding: "10px 14px" }}>
-              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2e7d32", marginBottom: 2 }}>
-                {"\u2198"} Low P/F, High FDV
+              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#9e2b25", marginBottom: 2 }}>
+                {"\u2198"} Low Fees, High FDV
               </p>
               <p style={{ fontSize: "11px", color: "#666", lineHeight: 1.4 }}>
-                Major chains with strong fee generation \u2014 fundamentally justified valuations
+                Highly valued chains generating few fees — narrative-driven or speculative pricing
               </p>
             </div>
           </div>
         </ChartExport>
       </Card>
 
-      {/* ===== CHAIN TYPE LEGEND ===== */}
+      {/* ===== CHART 2: Annualized Revenue vs FDV ===== */}
+      <Card className="mb-8">
+        <ChartExport
+          data={scatterData.map((b) => ({
+            name: b.displayName,
+            type: b.chainTypeLabel,
+            symbol: b.tokenSymbol,
+            fdv: b.fdv,
+            revenueAnn: b.revenueAnn,
+            feesAnn: b.feesAnn,
+            pf: b.pf,
+            ps: b.ps,
+          }))}
+          filename="blockchain-revenue-vs-fdv"
+          title=""
+        >
+          <div style={{ marginBottom: 20 }}>
+            <h3 style={{ fontSize: "20px", fontWeight: 700, color: "#111111", fontFamily: "Georgia, Cambria, serif", marginBottom: 4 }}>
+              Annualized Revenue vs. Fully Diluted Valuation
+            </h3>
+            <p style={{ fontSize: "13px", color: "#666666", lineHeight: 1.5, maxWidth: 680 }}>
+              Revenue measures the portion of fees retained by the protocol (after paying validators, LPs, etc.).
+              Diagonal lines mark constant Price-to-Sales (P/S) multiples.
+              Chains <strong>above</strong> a line earn more revenue per dollar of FDV.
+              {stats && stats.withFDV < stats.total && (
+                <span style={{ color: "#999" }}>
+                  {" "}Chains without separate revenue data use total fees as a proxy.
+                </span>
+              )}
+            </p>
+          </div>
+
+          {/* Legend */}
+          <div style={{ display: "flex", gap: 20, marginBottom: 16, flexWrap: "wrap" }}>
+            {scatterChainTypes.map((ct) => (
+              <div key={ct} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px" }}>
+                <span style={{
+                  width: 12,
+                  height: 12,
+                  backgroundColor: CHAIN_TYPE_COLORS[ct] || "#94a3b8",
+                  display: "inline-block",
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  borderRadius: "50%",
+                }} />
+                <span style={{ fontWeight: 500, color: "#333" }}>{CHAIN_TYPE_LABELS[ct] || ct}</span>
+                <span style={{ fontSize: "10px", color: "#999" }}>
+                  ({scatterData.filter((b) => b.chainType === ct).length})
+                </span>
+              </div>
+            ))}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px" }}>
+              <span style={{ width: 20, height: 0, borderTop: "2px dashed #b0b0b0", display: "inline-block" }} />
+              <span style={{ fontWeight: 500, color: "#999" }}>P/S multiple</span>
+            </div>
+          </div>
+
+          <div style={{ height: 540 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <ScatterChart margin={{ top: 30, right: 60, bottom: 50, left: 80 }}>
+                <CartesianGrid
+                  strokeDasharray="2 4"
+                  stroke="#e8e8e8"
+                  strokeOpacity={0.7}
+                />
+                <XAxis
+                  type="number"
+                  dataKey="fdv"
+                  name="FDV"
+                  scale="log"
+                  domain={["auto", "auto"]}
+                  tickFormatter={(v: number) => formatCompact(v)}
+                  tick={{ fontSize: 11, fill: "#999999", fontFamily: "'Inter', sans-serif" }}
+                  tickLine={false}
+                  axisLine={{ stroke: "#d4d4d4", strokeWidth: 1 }}
+                >
+                  <Label
+                    value={"Fully Diluted Valuation \u2192"}
+                    position="bottom"
+                    offset={20}
+                    style={{ fontSize: 12, fill: "#666666", fontWeight: 500, fontFamily: "'Inter', sans-serif" }}
+                  />
+                </XAxis>
+                <YAxis
+                  type="number"
+                  dataKey="revenueAnn"
+                  name="Revenue (Ann.)"
+                  scale="log"
+                  domain={["auto", "auto"]}
+                  tickFormatter={(v: number) => formatCompact(v)}
+                  tick={{ fontSize: 11, fill: "#999999", fontFamily: "'Inter', sans-serif" }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={65}
+                >
+                  <Label
+                    value={"Annualized Revenue \u2192"}
+                    angle={-90}
+                    position="insideLeft"
+                    offset={-10}
+                    style={{ fontSize: 12, fill: "#666666", fontWeight: 500, fontFamily: "'Inter', sans-serif" }}
+                  />
+                </YAxis>
+                <ZAxis range={[70, 70]} />
+                {/* P/S ratio diagonal reference lines */}
+                <Customized
+                  component={(chartProps: Record<string, unknown>) => (
+                    <RatioLines
+                      {...chartProps}
+                      ratios={PS_RATIOS}
+                      color="#b0b0b0"
+                      labelSuffix={"P/S multiples \u2191 cheaper"}
+                    />
+                  )}
+                />
+                {/* Median FDV vertical reference */}
+                <ReferenceLine
+                  x={medians.fdv}
+                  stroke="#111111"
+                  strokeDasharray="6 4"
+                  strokeWidth={1}
+                  strokeOpacity={0.3}
+                >
+                  <Label
+                    value={`Median FDV: ${formatCompact(medians.fdv)}`}
+                    position="insideTopRight"
+                    style={{ fontSize: 10, fill: "#111111", fontWeight: 600, fontFamily: "'Inter', sans-serif" }}
+                    offset={8}
+                  />
+                </ReferenceLine>
+                <Tooltip
+                  content={<ChainScatterTooltip />}
+                  cursor={{ stroke: "#d4d4d4", strokeDasharray: "3 3" }}
+                />
+                <Scatter data={scatterData} shape="circle">
+                  {scatterData.map((entry, idx) => (
+                    <Cell key={idx} fill={entry.color} fillOpacity={0.75} stroke={entry.color} strokeWidth={1.5} />
+                  ))}
+                </Scatter>
+              </ScatterChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Interpretation guide */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 0,
+            marginTop: 16,
+            border: "1px solid #e8e8e8",
+          }}>
+            <div style={{ padding: "10px 14px", borderRight: "1px solid #e8e8e8", borderBottom: "1px solid #e8e8e8" }}>
+              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2e7d32", marginBottom: 2 }}>
+                {"\u2196"} High Revenue, Low FDV
+              </p>
+              <p style={{ fontSize: "11px", color: "#666", lineHeight: 1.4 }}>
+                Strong revenue generators with modest valuations — attractive value propositions
+              </p>
+            </div>
+            <div style={{ padding: "10px 14px", borderBottom: "1px solid #e8e8e8" }}>
+              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#111111", marginBottom: 2 }}>
+                {"\u2197"} High Revenue, High FDV
+              </p>
+              <p style={{ fontSize: "11px", color: "#666", lineHeight: 1.4 }}>
+                Market leaders with established revenue streams and premium valuations
+              </p>
+            </div>
+            <div style={{ padding: "10px 14px", borderRight: "1px solid #e8e8e8" }}>
+              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#666666", marginBottom: 2 }}>
+                {"\u2199"} Low Revenue, Low FDV
+              </p>
+              <p style={{ fontSize: "11px", color: "#666", lineHeight: 1.4 }}>
+                Emerging chains — early-stage with limited revenue capture
+              </p>
+            </div>
+            <div style={{ padding: "10px 14px" }}>
+              <p style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#9e2b25", marginBottom: 2 }}>
+                {"\u2198"} Low Revenue, High FDV
+              </p>
+              <p style={{ fontSize: "11px", color: "#666", lineHeight: 1.4 }}>
+                Overvalued relative to revenue — priced on growth expectations or speculation
+              </p>
+            </div>
+          </div>
+        </ChartExport>
+      </Card>
+
+      {/* ===== CHAIN TYPE LEGEND + TABLES ===== */}
       <Card>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
           <h4 style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#333333" }}>
