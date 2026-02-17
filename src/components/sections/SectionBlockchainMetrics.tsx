@@ -97,6 +97,25 @@ const L2_CATEGORIES = new Set([
   "Rollup", "L2", "Optimistic Rollup", "ZK Rollup", "Validium", "Appchain", "Sidechain",
 ]);
 
+// Well-known EVM-native chains (slug / DefiLlama name)
+const EVM_NATIVE_CHAINS = new Set([
+  // L1s
+  "ethereum", "bsc", "bnb-chain", "avalanche", "fantom", "cronos", "gnosis",
+  "moonbeam", "celo", "harmony", "aurora", "kava", "canto", "evmos", "klaytn",
+  "moonriver", "boba", "oasis", "telos", "fuse", "meter", "syscoin", "wanchain",
+  "conflux", "dogechain", "heco", "okexchain", "okx-chain", "thunder-core",
+  "elastos", "shardeum", "flare", "rootstock", "rei-network", "kcc", "astar",
+  "velas", "step-network", "sx-network", "bitgert", "core", "iotex", "pulsechain",
+  "filecoin", "tenet", "neon", "shimmer-evm", "zeta",
+  // L2s / Rollups
+  "arbitrum", "optimism", "base", "polygon", "polygon-zkevm", "mantle", "zksync",
+  "zksync-era", "linea", "scroll", "blast", "manta", "mode", "metis", "taiko",
+  "immutable-zkevm", "loopring", "starknet", "boba-network", "fraxtal",
+  "zkfair", "mint", "redstone", "zora", "pgn", "lisk", "world-chain", "bob",
+  "kroma", "opbnb", "cyber", "degen", "ham", "proof-of-play", "sanko",
+  "xai", "rari", "apex", "myria", "nova", "arbitrum-nova",
+]);
+
 const CHAIN_TYPE_COLORS: Record<string, string> = {
   L1: "#e07714",
   L2: "#2563eb",
@@ -133,6 +152,7 @@ interface EnrichedBlockchain {
   ps: number | null;
   pf: number | null;
   margin: number | null;
+  isEvm: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -423,6 +443,13 @@ export default function SectionBlockchainMetrics() {
         ? Math.min(p.revenue24h / p.total24h, 1)
         : null;
 
+      const isEvm =
+        cat === "EVM" || cat === "EVM Compatible" ||
+        EVM_NATIVE_CHAINS.has(slug) ||
+        EVM_NATIVE_CHAINS.has(nameKey) ||
+        EVM_NATIVE_CHAINS.has(displayKey) ||
+        (mapping != null && EVM_NATIVE_CHAINS.has(mapping.defiLlamaName.toLowerCase()));
+
       results.push({
         name: p.name,
         displayName: p.displayName || p.name,
@@ -440,6 +467,7 @@ export default function SectionBlockchainMetrics() {
         ps,
         pf,
         margin,
+        isEvm,
       });
     }
 
@@ -460,13 +488,13 @@ export default function SectionBlockchainMetrics() {
     return withPF.reduce((min, b) => (b.pf! < min.pf! ? b : min), withPF[0]);
   }, [scatterData]);
 
-  // P/F comparison data: top 12 fee-generating chains, ensure lowest P/F is included
+  // P/F comparison data: top 50 fee-generating chains, ensure lowest P/F is included
   const pfComparisonData = useMemo(() => {
     const withPF = scatterData.filter((b) => b.pf != null && b.pf > 0);
-    const topByFees = [...withPF].sort((a, b) => b.fees24h - a.fees24h).slice(0, 12);
+    const topByFees = [...withPF].sort((a, b) => b.fees24h - a.fees24h).slice(0, 50);
     // Ensure the lowest P/F chain is in the list
     if (lowestPFChain && !topByFees.find((b) => b.name === lowestPFChain.name)) {
-      topByFees.pop(); // remove the 12th to make room
+      topByFees.pop(); // remove the last to make room
       topByFees.push(lowestPFChain);
     }
     // Sort by P/F ascending (lowest = best at top)
@@ -487,13 +515,17 @@ export default function SectionBlockchainMetrics() {
     };
   }, [scatterData]);
 
-  // Median P/F by layer type (L1 index, L2 index)
+  // Median P/F by layer type — all chains and EVM-native only
   const layerMedians = useMemo(() => {
     const l1Pfs = scatterData.filter((b) => b.chainType === "L1" && b.pf != null && b.pf > 0).map((b) => b.pf!);
     const l2Pfs = scatterData.filter((b) => b.chainType === "L2" && b.pf != null && b.pf > 0).map((b) => b.pf!);
+    const evmL1Pfs = scatterData.filter((b) => b.chainType === "L1" && b.isEvm && b.pf != null && b.pf > 0).map((b) => b.pf!);
+    const evmL2Pfs = scatterData.filter((b) => b.chainType === "L2" && b.isEvm && b.pf != null && b.pf > 0).map((b) => b.pf!);
     return {
       l1: l1Pfs.length > 0 ? median(l1Pfs) : 0,
       l2: l2Pfs.length > 0 ? median(l2Pfs) : 0,
+      evmL1: evmL1Pfs.length > 0 ? median(evmL1Pfs) : 0,
+      evmL2: evmL2Pfs.length > 0 ? median(evmL2Pfs) : 0,
     };
   }, [scatterData]);
 
@@ -726,6 +758,7 @@ export default function SectionBlockchainMetrics() {
             data={pfDeviationData.map((b) => ({
               name: b.displayName,
               type: b.chainTypeLabel,
+              evm: b.isEvm,
               pf: b.pf,
               fdv: b.fdv,
               feesAnn: b.feesAnn,
@@ -763,16 +796,16 @@ export default function SectionBlockchainMetrics() {
                 <span style={{ width: 12, height: 12, backgroundColor: HIGHLIGHT_GREEN, display: "inline-block", borderRadius: "50%" }} />
                 <span style={{ fontWeight: 600, color: HIGHLIGHT_GREEN }}>{lowestPFChain.displayName} (baseline)</span>
               </div>
-              {layerMedians.l1 > 0 && (
+              {layerMedians.evmL1 > 0 && (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px" }}>
                   <span style={{ width: 16, height: 0, borderTop: `2px dashed ${CHAIN_TYPE_COLORS.L1}`, display: "inline-block" }} />
-                  <span style={{ fontWeight: 500, color: CHAIN_TYPE_COLORS.L1 }}>L1 Index (median P/F)</span>
+                  <span style={{ fontWeight: 500, color: CHAIN_TYPE_COLORS.L1 }}>EVM L1 Index (median P/F)</span>
                 </div>
               )}
-              {layerMedians.l2 > 0 && (
+              {layerMedians.evmL2 > 0 && (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px" }}>
                   <span style={{ width: 16, height: 0, borderTop: `2px dashed ${CHAIN_TYPE_COLORS.L2}`, display: "inline-block" }} />
-                  <span style={{ fontWeight: 500, color: CHAIN_TYPE_COLORS.L2 }}>L2 Index (median P/F)</span>
+                  <span style={{ fontWeight: 500, color: CHAIN_TYPE_COLORS.L2 }}>EVM L2 Index (median P/F)</span>
                 </div>
               )}
             </div>
@@ -845,34 +878,34 @@ export default function SectionBlockchainMetrics() {
                       />
                     </ReferenceLine>
                   )}
-                  {/* L1 Index reference */}
-                  {layerMedians.l1 > 0 && lowestPFChain.pf != null && (
+                  {/* EVM L1 Index reference */}
+                  {layerMedians.evmL1 > 0 && lowestPFChain.pf != null && (
                     <ReferenceLine
-                      x={layerMedians.l1 / lowestPFChain.pf}
+                      x={layerMedians.evmL1 / lowestPFChain.pf}
                       stroke={CHAIN_TYPE_COLORS.L1}
                       strokeDasharray="4 3"
                       strokeWidth={1.5}
                       strokeOpacity={0.7}
                     >
                       <Label
-                        value={`L1 Index: ${formatRatio(layerMedians.l1)} (${(layerMedians.l1 / lowestPFChain.pf!).toFixed(1)}x)`}
+                        value={`EVM L1 Index: ${formatRatio(layerMedians.evmL1)} (${(layerMedians.evmL1 / lowestPFChain.pf!).toFixed(1)}x)`}
                         position="insideBottomRight"
                         style={{ fontSize: 10, fill: CHAIN_TYPE_COLORS.L1, fontWeight: 600, fontFamily: "'Inter', sans-serif" }}
                         offset={6}
                       />
                     </ReferenceLine>
                   )}
-                  {/* L2 Index reference */}
-                  {layerMedians.l2 > 0 && lowestPFChain.pf != null && (
+                  {/* EVM L2 Index reference */}
+                  {layerMedians.evmL2 > 0 && lowestPFChain.pf != null && (
                     <ReferenceLine
-                      x={layerMedians.l2 / lowestPFChain.pf}
+                      x={layerMedians.evmL2 / lowestPFChain.pf}
                       stroke={CHAIN_TYPE_COLORS.L2}
                       strokeDasharray="4 3"
                       strokeWidth={1.5}
                       strokeOpacity={0.7}
                     >
                       <Label
-                        value={`L2 Index: ${formatRatio(layerMedians.l2)} (${(layerMedians.l2 / lowestPFChain.pf!).toFixed(1)}x)`}
+                        value={`EVM L2 Index: ${formatRatio(layerMedians.evmL2)} (${(layerMedians.evmL2 / lowestPFChain.pf!).toFixed(1)}x)`}
                         position="insideBottomLeft"
                         style={{ fontSize: 10, fill: CHAIN_TYPE_COLORS.L2, fontWeight: 600, fontFamily: "'Inter', sans-serif" }}
                         offset={6}
