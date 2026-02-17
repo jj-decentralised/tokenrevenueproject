@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import { useDataContext } from "@/lib/DataContext";
 import { findProtocolMapping } from "@/lib/protocolTokenMap";
+import { PROTOCOL_CATEGORY_OVERRIDES } from "@/lib/categories";
 import { Card, SectionHeader, DataSource } from "@/components/ui/Card";
 import { ChartExport } from "@/components/ui/ChartExport";
 
@@ -232,16 +233,32 @@ export default function SectionBlockchainMetrics() {
       tvlByName.set(t.slug.toLowerCase(), t);
     }
 
+    // Build a set of slugs that are overridden to "Chain" in categories.ts
+    const chainSlugs = new Set<string>();
+    for (const [slug, cat] of Object.entries(PROTOCOL_CATEGORY_OVERRIDES)) {
+      if (cat === "Chain") chainSlugs.add(slug.toLowerCase());
+    }
+
     const results: EnrichedBlockchain[] = [];
     for (const p of ctx.fees.protocols) {
       if (p.total24h <= 0) continue;
 
-      // Only include blockchain-sector protocols
       const cat = p.category || "";
-      if (!BLOCKCHAIN_CATEGORIES.has(cat)) continue;
+      const mapping = findProtocolMapping(p.name);
+      const slug = (p.slug || p.name || "").toLowerCase().replace(/\s+/g, "-");
+
+      // Accept protocol if ANY of these identify it as a blockchain:
+      // 1. DefiLlama category is a known blockchain category
+      // 2. protocolTokenMap says categoryGroup is "Blockchains"
+      // 3. Slug is in PROTOCOL_CATEGORY_OVERRIDES as "Chain"
+      const isBlockchain =
+        BLOCKCHAIN_CATEGORIES.has(cat) ||
+        (mapping != null && mapping.categoryGroup === "Blockchains") ||
+        chainSlugs.has(slug) ||
+        chainSlugs.has(p.name.toLowerCase().replace(/\s+/g, "-"));
+      if (!isBlockchain) continue;
 
       // Determine L1 vs L2
-      const mapping = findProtocolMapping(p.name);
       let chainType = "Other";
       if (mapping && mapping.categoryGroup === "Blockchains") {
         chainType = mapping.subcategory === "L2" ? "L2" : "L1";
