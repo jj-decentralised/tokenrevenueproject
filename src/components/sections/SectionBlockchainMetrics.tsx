@@ -473,6 +473,20 @@ export default function SectionBlockchainMetrics() {
     return topByFees.sort((a, b) => a.pf! - b.pf!);
   }, [scatterData, lowestPFChain]);
 
+  // Compute medians from scatter-eligible data
+  const medians = useMemo(() => {
+    if (scatterData.length === 0) return { fdv: 0, ps: 0, pf: 0, feesAnn: 0, revenueAnn: 0 };
+    const psVals = scatterData.filter((p) => p.ps != null).map((p) => p.ps!);
+    const pfVals = scatterData.filter((p) => p.pf != null).map((p) => p.pf!);
+    return {
+      fdv: median(scatterData.map((p) => p.fdv!)),
+      ps: psVals.length > 0 ? median(psVals) : 0,
+      pf: pfVals.length > 0 ? median(pfVals) : 0,
+      feesAnn: median(scatterData.map((p) => p.feesAnn)),
+      revenueAnn: median(scatterData.map((p) => p.revenueAnn)),
+    };
+  }, [scatterData]);
+
   // Deviation data: how many multiples more expensive each peer is vs the lowest P/F chain
   const pfDeviationData = useMemo(() => {
     if (!lowestPFChain || lowestPFChain.pf == null) return [];
@@ -511,20 +525,6 @@ export default function SectionBlockchainMetrics() {
       medianPF: medians.pf,
     };
   }, [lowestPFChain, medians.pf, scatterData]);
-
-  // Compute medians from scatter-eligible data
-  const medians = useMemo(() => {
-    if (scatterData.length === 0) return { fdv: 0, ps: 0, pf: 0, feesAnn: 0, revenueAnn: 0 };
-    const psVals = scatterData.filter((p) => p.ps != null).map((p) => p.ps!);
-    const pfVals = scatterData.filter((p) => p.pf != null).map((p) => p.pf!);
-    return {
-      fdv: median(scatterData.map((p) => p.fdv!)),
-      ps: psVals.length > 0 ? median(psVals) : 0,
-      pf: pfVals.length > 0 ? median(pfVals) : 0,
-      feesAnn: median(scatterData.map((p) => p.feesAnn)),
-      revenueAnn: median(scatterData.map((p) => p.revenueAnn)),
-    };
-  }, [scatterData]);
 
   // Summary stats
   const stats = useMemo(() => {
