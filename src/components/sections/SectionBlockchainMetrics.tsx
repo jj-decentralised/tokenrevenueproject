@@ -93,10 +93,10 @@ interface EnrichedBlockchain {
   feesAnn: number;
   revenueAnn: number;
   revenue24h: number;
-  fdv: number;
+  fdv: number | null;
   marketCap: number | null;
-  ps: number;
-  pf: number;
+  ps: number | null;
+  pf: number | null;
   margin: number | null;
 }
 
@@ -220,20 +220,31 @@ export default function SectionBlockchainMetrics() {
   const allBlockchains = useMemo(() => {
     if (!hasLiveFees || !ctx.fees) return [];
 
+    // ── CoinGecko lookup maps ──
     const tokenById = new Map<string, { marketCap: number; fullyDilutedValuation: number | null; totalVolume24h: number }>();
     const tokenByName = new Map<string, { marketCap: number; fullyDilutedValuation: number | null; totalVolume24h: number }>();
+    const tokenBySymbol = new Map<string, { marketCap: number; fullyDilutedValuation: number | null; totalVolume24h: number }>();
     for (const t of ctx.coinGecko?.tokens ?? []) {
       tokenById.set(t.id.toLowerCase(), t);
       tokenByName.set(t.name.toLowerCase(), t);
+      if (t.symbol) tokenBySymbol.set(t.symbol.toLowerCase(), t);
     }
 
-    const tvlByName = new Map<string, { mcap: number | null; fdv: number | null }>();
+    // ── DefiLlama TVL lookup maps (comprehensive key variants) ──
+    const tvlByKey = new Map<string, { mcap: number | null; fdv: number | null }>();
     for (const t of ctx.tvl?.allProtocolsTVL ?? []) {
-      tvlByName.set(t.name.toLowerCase(), t);
-      tvlByName.set(t.slug.toLowerCase(), t);
+      const keys = [
+        t.name.toLowerCase(),
+        t.slug.toLowerCase(),
+        t.name.toLowerCase().replace(/\s+/g, "-"),
+        t.slug.toLowerCase().replace(/\s+/g, "-"),
+      ];
+      for (const k of keys) {
+        if (k && !tvlByKey.has(k)) tvlByKey.set(k, t);
+      }
     }
 
-    // Build a set of slugs that are overridden to "Chain" in categories.ts
+    // ── Chain slug set from PROTOCOL_CATEGORY_OVERRIDES ──
     const chainSlugs = new Set<string>();
     for (const [slug, cat] of Object.entries(PROTOCOL_CATEGORY_OVERRIDES)) {
       if (cat === "Chain") chainSlugs.add(slug.toLowerCase());
@@ -246,16 +257,16 @@ export default function SectionBlockchainMetrics() {
       const cat = p.category || "";
       const mapping = findProtocolMapping(p.name);
       const slug = (p.slug || p.name || "").toLowerCase().replace(/\s+/g, "-");
+      const nameKey = p.name.toLowerCase().replace(/\s+/g, "-");
+      const displayKey = (p.displayName || "").toLowerCase().replace(/\s+/g, "-");
 
       // Accept protocol if ANY of these identify it as a blockchain:
-      // 1. DefiLlama category is a known blockchain category
-      // 2. protocolTokenMap says categoryGroup is "Blockchains"
-      // 3. Slug is in PROTOCOL_CATEGORY_OVERRIDES as "Chain"
       const isBlockchain =
         BLOCKCHAIN_CATEGORIES.has(cat) ||
         (mapping != null && mapping.categoryGroup === "Blockchains") ||
         chainSlugs.has(slug) ||
-        chainSlugs.has(p.name.toLowerCase().replace(/\s+/g, "-"));
+        chainSlugs.has(nameKey) ||
+        chainSlugs.has(displayKey);
       if (!isBlockchain) continue;
 
       // Determine L1 vs L2
@@ -268,26 +279,47 @@ export default function SectionBlockchainMetrics() {
         chainType = "L1";
       }
 
-      const tokenMatch = mapping?.coinGeckoId
-        ? tokenById.get(mapping.coinGeckoId.toLowerCase())
-        : (tokenByName.get(p.name.toLowerCase()) ?? tokenById.get(p.name.toLowerCase()) ?? tokenByName.get((p.displayName || "").toLowerCase()));
-      const tvlMatch = tvlByName.get(p.name.toLowerCase()) ?? tvlByName.get(p.name.toLowerCase().replace(/\s+/g, "-"));
+      // ── FDV matching: try every available path ──
+      // CoinGecko: try coinGeckoId from mapping, then name variants
+      let tokenMatch = mapping?.coinGeckoId
+        ? tokenById.get(mapping.coinGeckoId.toLowerCase()) ?? null
+        : null;
+      if (!tokenMatch) {
+        tokenMatch =
+          tokenByName.get(p.name.toLowerCase()) ??
+          tokenById.get(p.name.toLowerCase()) ??
+          tokenByName.get((p.displayName || "").toLowerCase()) ??
+          tokenById.get(slug) ??
+          tokenById.get(nameKey) ??
+          (mapping?.tokenSymbol ? tokenBySymbol.get(mapping.tokenSymbol.toLowerCase()) ?? null : null) ??
+          null;
+      }
+
+      // DefiLlama TVL: try name, slug, displayName, and defiLlamaName from mapping
+      const tvlMatch =
+        tvlByKey.get(p.name.toLowerCase()) ??
+        tvlByKey.get(slug) ??
+        tvlByKey.get(nameKey) ??
+        tvlByKey.get(displayKey) ??
+        tvlByKey.get((p.displayName || "").toLowerCase()) ??
+        (mapping?.defiLlamaName ? tvlByKey.get(mapping.defiLlamaName.toLowerCase()) : null) ??
+        null;
 
       const fdv = tokenMatch?.fullyDilutedValuation ?? tvlMatch?.fdv ?? null;
-      if (fdv == null || fdv <= 0) continue;
-
       const marketCap = tokenMatch?.marketCap ?? tvlMatch?.mcap ?? null;
       const feesAnn = p.total24h * 365;
       const revenue24h = p.revenue24h ?? 0;
       const revenueAnn = revenue24h > 0 ? revenue24h * 365 : feesAnn;
 
-      const ps = revenueAnn > 0 ? fdv / revenueAnn : null;
-      const pf = feesAnn > 0 ? fdv / feesAnn : null;
-
-      if (ps == null || pf == null) continue;
-      // Filter extreme outliers
-      if (ps > 5000 || pf > 5000) continue;
-      if (ps < 0.01 || pf < 0.01) continue;
+      let ps: number | null = null;
+      let pf: number | null = null;
+      if (fdv != null && fdv > 0) {
+        ps = revenueAnn > 0 ? fdv / revenueAnn : null;
+        pf = feesAnn > 0 ? fdv / feesAnn : null;
+        // Filter extreme outliers from scatter (but still keep in tables)
+        if (ps != null && (ps > 5000 || ps < 0.01)) ps = null;
+        if (pf != null && (pf > 5000 || pf < 0.01)) pf = null;
+      }
 
       const margin = (p.revenue24h != null && p.total24h > 0)
         ? Math.min(p.revenue24h / p.total24h, 1)
@@ -313,36 +345,45 @@ export default function SectionBlockchainMetrics() {
       });
     }
 
-    results.sort((a, b) => b.fdv - a.fdv);
+    // Sort by fees (descending) as primary sort — works for all chains regardless of FDV
+    results.sort((a, b) => b.fees24h - a.fees24h);
     return results;
   }, [hasLiveFees, ctx.fees, ctx.coinGecko, ctx.tvl]);
 
-  // Compute medians
+  // Chains with FDV data (for scatter plots)
+  const scatterData = useMemo(() =>
+    allBlockchains.filter((b) => b.fdv != null && b.ps != null && b.pf != null),
+    [allBlockchains]
+  );
+
+  // Compute medians (from scatter-eligible data only)
   const medians = useMemo(() => {
-    if (allBlockchains.length === 0) return { fdv: 0, ps: 0, pf: 0, feesAnn: 0, revenueAnn: 0 };
+    if (scatterData.length === 0) return { fdv: 0, ps: 0, pf: 0, feesAnn: 0, revenueAnn: 0 };
     return {
-      fdv: median(allBlockchains.map((p) => p.fdv)),
-      ps: median(allBlockchains.map((p) => p.ps)),
-      pf: median(allBlockchains.map((p) => p.pf)),
-      feesAnn: median(allBlockchains.map((p) => p.feesAnn)),
-      revenueAnn: median(allBlockchains.map((p) => p.revenueAnn)),
+      fdv: median(scatterData.map((p) => p.fdv!)),
+      ps: median(scatterData.map((p) => p.ps!)),
+      pf: median(scatterData.map((p) => p.pf!)),
+      feesAnn: median(scatterData.map((p) => p.feesAnn)),
+      revenueAnn: median(scatterData.map((p) => p.revenueAnn)),
     };
-  }, [allBlockchains]);
+  }, [scatterData]);
 
   // Summary stats
   const stats = useMemo(() => {
     if (allBlockchains.length === 0) return null;
     const l1Count = allBlockchains.filter((b) => b.chainType === "L1").length;
     const l2Count = allBlockchains.filter((b) => b.chainType === "L2").length;
-    const lowestPS = [...allBlockchains].sort((a, b) => a.ps - b.ps).slice(0, 5);
-    const lowestPF = [...allBlockchains].sort((a, b) => a.pf - b.pf).slice(0, 5);
+    const withFDV = scatterData;
+    const lowestPS = [...withFDV].sort((a, b) => a.ps! - b.ps!).slice(0, 5);
+    const lowestPF = [...withFDV].sort((a, b) => a.pf! - b.pf!).slice(0, 5);
     const highestFees = [...allBlockchains].sort((a, b) => b.fees24h - a.fees24h).slice(0, 5);
-    return { l1Count, l2Count, lowestPS, lowestPF, highestFees, total: allBlockchains.length };
-  }, [allBlockchains]);
+    return { l1Count, l2Count, lowestPS, lowestPF, highestFees, total: allBlockchains.length, withFDV: withFDV.length };
+  }, [allBlockchains, scatterData]);
 
   if (!hasLiveFees || allBlockchains.length === 0) return null;
 
   const chainTypes = Array.from(new Set(allBlockchains.map((b) => b.chainType)));
+  const scatterChainTypes = Array.from(new Set(scatterData.map((b) => b.chainType)));
 
   return (
     <section className="mb-16">
@@ -362,7 +403,7 @@ export default function SectionBlockchainMetrics() {
             {stats?.total}
           </p>
           <p style={{ fontSize: "11px", color: "#999", marginTop: 4 }}>
-            {stats?.l1Count} L1 \u00B7 {stats?.l2Count} L2
+            {stats?.l1Count} L1 \u00B7 {stats?.l2Count} L2 \u00B7 {stats?.withFDV} w/ FDV
           </p>
         </div>
         <div style={{ padding: "16px 20px", backgroundColor: "#fffff8", border: "1px solid #d4d4d4" }}>
@@ -402,7 +443,7 @@ export default function SectionBlockchainMetrics() {
       {/* ===== CHART 1: P/S vs FDV ===== */}
       <Card className="mb-8">
         <ChartExport
-          data={allBlockchains.map((b) => ({
+          data={scatterData.map((b) => ({
             name: b.displayName,
             type: b.chainTypeLabel,
             symbol: b.tokenSymbol,
@@ -420,13 +461,14 @@ export default function SectionBlockchainMetrics() {
             </h3>
             <p style={{ fontSize: "13px", color: "#666666", lineHeight: 1.5, maxWidth: 640 }}>
               Every dot is a blockchain (L1 or L2). Bubble size reflects daily fee generation.
-              Dashed lines mark median values across all {stats?.total} chains.
+              Dashed lines mark median values across {stats?.withFDV} chains with FDV data
+              ({stats?.total} total blockchains tracked).
             </p>
           </div>
 
           {/* Legend */}
           <div style={{ display: "flex", gap: 20, marginBottom: 16 }}>
-            {chainTypes.map((ct) => (
+            {scatterChainTypes.map((ct) => (
               <div key={ct} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px" }}>
                 <span style={{
                   width: 12,
@@ -438,7 +480,7 @@ export default function SectionBlockchainMetrics() {
                 }} />
                 <span style={{ fontWeight: 500, color: "#333" }}>{CHAIN_TYPE_LABELS[ct] || ct}</span>
                 <span style={{ fontSize: "10px", color: "#999" }}>
-                  ({allBlockchains.filter((b) => b.chainType === ct).length})
+                  ({scatterData.filter((b) => b.chainType === ct).length})
                 </span>
               </div>
             ))}
@@ -529,8 +571,8 @@ export default function SectionBlockchainMetrics() {
                   content={<PSTooltip />}
                   cursor={{ stroke: "#d4d4d4", strokeDasharray: "3 3" }}
                 />
-                <Scatter data={allBlockchains} shape="circle">
-                  {allBlockchains.map((entry, idx) => (
+                <Scatter data={scatterData} shape="circle">
+                  {scatterData.map((entry, idx) => (
                     <Cell key={idx} fill={entry.color} fillOpacity={0.7} stroke={entry.color} strokeWidth={1.5} />
                   ))}
                 </Scatter>
@@ -585,7 +627,7 @@ export default function SectionBlockchainMetrics() {
       {/* ===== CHART 2: P/F vs FDV ===== */}
       <Card className="mb-8">
         <ChartExport
-          data={allBlockchains.map((b) => ({
+          data={scatterData.map((b) => ({
             name: b.displayName,
             type: b.chainTypeLabel,
             symbol: b.tokenSymbol,
@@ -609,7 +651,7 @@ export default function SectionBlockchainMetrics() {
 
           {/* Legend */}
           <div style={{ display: "flex", gap: 20, marginBottom: 16 }}>
-            {chainTypes.map((ct) => (
+            {scatterChainTypes.map((ct) => (
               <div key={ct} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px" }}>
                 <span style={{
                   width: 12,
@@ -621,7 +663,7 @@ export default function SectionBlockchainMetrics() {
                 }} />
                 <span style={{ fontWeight: 500, color: "#333" }}>{CHAIN_TYPE_LABELS[ct] || ct}</span>
                 <span style={{ fontSize: "10px", color: "#999" }}>
-                  ({allBlockchains.filter((b) => b.chainType === ct).length})
+                  ({scatterData.filter((b) => b.chainType === ct).length})
                 </span>
               </div>
             ))}
@@ -728,8 +770,8 @@ export default function SectionBlockchainMetrics() {
                   content={<PFTooltip />}
                   cursor={{ stroke: "#d4d4d4", strokeDasharray: "3 3" }}
                 />
-                <Scatter data={allBlockchains} shape="circle">
-                  {allBlockchains.map((entry, idx) => (
+                <Scatter data={scatterData} shape="circle">
+                  {scatterData.map((entry, idx) => (
                     <Cell key={idx} fill={entry.color} fillOpacity={0.7} stroke={entry.color} strokeWidth={1.5} />
                   ))}
                 </Scatter>
@@ -1004,8 +1046,8 @@ export default function SectionBlockchainMetrics() {
                     <td style={{ padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatCompact(b.fees24h)}</td>
                     <td style={{ padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatCompact(b.feesAnn)}</td>
                     <td style={{ padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatCompact(b.revenueAnn)}</td>
-                    <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: b.ps < medians.ps ? "#2e7d32" : "#111" }}>{formatRatio(b.ps)}</td>
-                    <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: b.pf < medians.pf ? "#2e7d32" : "#111" }}>{formatRatio(b.pf)}</td>
+                    <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: b.ps != null && b.ps < medians.ps ? "#2e7d32" : "#111" }}>{formatRatio(b.ps)}</td>
+                    <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: b.pf != null && b.pf < medians.pf ? "#2e7d32" : "#111" }}>{formatRatio(b.pf)}</td>
                   </tr>
                 ))}
               </tbody>
